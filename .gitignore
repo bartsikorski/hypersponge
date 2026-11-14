@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+selftest_out/
+build/
+dist/
+*.log
+*.png
+!hypersponge/**/*.png
+!docs/**/*.png
+!tests/golden/*.png
+!prototype/images/*.png
+prototype/gpu_out/
