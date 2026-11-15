@@ -1,4 +1,4 @@
-"""Golden scenes 1 to 4 and the two 2D identities (design 18.2).  Needs an OpenGL 3.3 context.
+"""Golden scenes 1 to 8 and the identities (design 18.2).  Needs an OpenGL 3.3 context.
 
 `pytest --update-golden` rewrites tests/golden/*.png; look at the new pictures before committing.
 """
@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from hypersponge.core.camera import Camera2D
+from hypersponge.core.camera import Camera2D, CameraND
 from hypersponge.core.position import Pos
 from hypersponge.core.rule import Rule
 from hypersponge.render.renderer import render_still
@@ -34,12 +34,24 @@ def cam_at(xy, height, E=0, m=2, size=SIZE):
     return cam
 
 
+def cam3(m=2, max_level=None, notches=0, size=SIZE):
+    cam = CameraND(Rule(3, m, max_level), size, size)
+    for _ in range(notches):
+        cam.wheel(1, (0.12, -0.05, 1.0))
+    cam.update_sigma()
+    return cam
+
+
 SCENES = {
     "01_carpet": lambda: (cam_at((0.5, 0.5), 1.25), StyleSettings()),
     "02_carpet_deep_levels": lambda: (cam_at((0.25, 0.75), 1.4, E=150), StyleSettings(style="levels", palette="pastel")),
     "03_dust_clay": lambda: (cam_at((0.5, 0.5), 1.25, m=1), StyleSettings(style="clay")),
     "04_carpet_inverted_light": lambda: (cam_at((0.5, 0.5), 1.25),
                                          StyleSettings(inverted=True, background="light")),
+    "05_sponge": lambda: (cam3(), StyleSettings()),
+    "06_sponge_wheel40": lambda: (cam3(notches=40), StyleSettings()),
+    "07_centre_removed_clay": lambda: (cam3(m=3), StyleSettings(style="clay")),
+    "08_max_level2_axes": lambda: (cam3(max_level=2), StyleSettings(style="axes")),
 }
 
 
@@ -57,6 +69,25 @@ def test_golden(renderer, update_golden, name):
     assert img.shape == want.shape
     assert mad(img, want) < 2.0, mad(img, want)
     assert img.std() > 10                                          # not one colour
+
+
+def test_same_3d_picture_at_unit_E_and_E_plus_1(renderer):
+    """One rescale(+1) without normalising leaves the 3D picture unchanged."""
+    from hypersponge.core.levels import level_table
+    from hypersponge.core.sdf import table_rows
+    a = cam3(notches=40)
+    b = cam3(notches=40)
+    b.pos.rescale(+1)
+    b.far *= 3.0
+    b.de *= 3.0
+    b.table = level_table(b.pos, 3, 2, far=b.far, fine_min=0.3 * b.de * b.pix)
+    b.rows = table_rows(b.table)
+    assert b.pos.E == a.pos.E + 1 and b.sigma == pytest.approx(3.0 * a.sigma)
+    for style in ("sponge", "levels", "axes"):
+        st = StyleSettings(style=style)
+        ia = render_still(a, st, samples=4, renderer=renderer)
+        ib = render_still(b, st, samples=4, renderer=renderer)
+        assert mad(ia, ib) < 1.0, (style, mad(ia, ib))
 
 
 def test_same_picture_at_unit_E_and_E_plus_1(renderer):

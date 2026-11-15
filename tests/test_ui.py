@@ -1,6 +1,8 @@
 """Interface pieces that need no window: the inset geometry, the status text, input handling."""
 import pytest
 
+import numpy as np
+
 from hypersponge.core.camera import Camera2D
 from hypersponge.core.rule import Rule
 from hypersponge.ui import inset
@@ -26,8 +28,19 @@ def test_depth_text():
     assert depth_text(41) == "3^-41 (10^-19.6)"
 
 
-def make_app():
-    app = App("2d", (800, 600))
+def test_inset_3d_cube_and_eye():
+    edges, eye, tip = inset.geometry_nd(np.array([0.5, 0.5, 0.5, 0]) + np.array([1.45, 1.05, -1.75, 0]),
+                                        np.array([0, 0, 1.0, 0]), 3, (0.0, 0.0))
+    assert len(edges) == 12
+    xs = [p[0] for e in edges for p in e]
+    assert 0 < min(xs) and max(xs) < inset.BOX                          # the cube fits in the map
+    assert 0 < eye[0] < inset.BOX and 0 < eye[1] < inset.BOX
+    far = inset.geometry_nd(np.array([20.0, 0.5, 0.5, 0]), np.array([1.0, 0, 0, 0]), 3, (0.0, 0.0))[1]
+    assert far[0] == pytest.approx(inset.BOX - 6.0)                     # outside: on the border
+
+
+def make_app(mode="2d"):
+    app = App(mode, (800, 600))
     app.fb = (800, 600)
     for cam in app.cams.values():
         cam.resize(800, 600)
@@ -77,5 +90,49 @@ def test_rule_changes():
     assert app.rule == Rule(2, 1, 3)
     app.set_rule(m=2, max_level=None)
     assert app.rule == Rule(2, 2) and isinstance(app.camera, Camera2D)
-    app.set_mode("3d")                                              # not built yet: ignored
+
+
+def test_3d_drag_wheel_keys_and_home():
+    app = make_app("3d")
+    cam = app.camera
+    rho = cam.rho()
+    k0 = cam.key()
+    app.handle_input(InputSnapshot(mouse=(400, 300), down=(True, False, False), clicked=(True, False, False)), 0.016)
+    app.handle_input(InputSnapshot(mouse=(440, 280), down=(True, False, False)), 0.016)
+    assert cam.key() != k0 and abs(cam.rho() - rho) < 1e-9 and app.sigma_moving
+    app.handle_input(InputSnapshot(mouse=(440, 280)), 0.016)
+    assert app.drag is None
+    app.handle_input(InputSnapshot(mouse=(400, 300), down=(False, True, False), clicked=(False, True, False)), 0.016)
+    assert app.drag["grab"] > 0
+    e0 = cam.eye_world().copy()
+    app.handle_input(InputSnapshot(mouse=(380, 310), down=(False, True, False)), 0.016)
+    assert np.linalg.norm(cam.eye_world() - e0) > 0
+    app.handle_input(InputSnapshot(mouse=(380, 310)), 0.016)
+    for _ in range(20):
+        app.handle_input(InputSnapshot(mouse=(400, 300), wheel=1.0), 0.016)
+    assert not cam.overview()
+    F0 = cam.F.copy()
+    app.handle_input(InputSnapshot(keys={"q"}), 0.5)                       # roll 45 degrees
+    assert np.allclose(cam.F[:, 0], F0[:, 0] * np.cos(np.pi / 4) + F0[:, 1] * np.sin(np.pi / 4))
+    e0 = cam.eye_world().copy()
+    app.handle_input(InputSnapshot(keys={"w"}), 0.05)
+    assert (cam.eye_world() - e0) @ cam.F[:, 2] > 0
+    app.handle_input(InputSnapshot(pressed={"home"}), 0.016)
+    assert cam.overview() and cam.depth == 0
+
+
+def test_mode_switch_keeps_each_camera():
+    app = make_app("3d")
+    for _ in range(10):
+        app.handle_input(InputSnapshot(mouse=(400, 300), wheel=1.0), 0.016)
+    k3 = app.camera.key()
+    app.set_mode("2d")
+    assert app.camera.mode == "2d"
+    app.style.style = "levels"
+    app.set_mode("3d")
+    assert app.camera.key() == k3 and app.style.style == "levels"
+    app.style.style = "axes"
+    app.set_mode("2d")
+    assert app.style.style == "sponge"                                     # Axes has no 2D form
+    app.set_mode("4d")                                                     # not built yet: ignored
     assert app.mode == "2d"

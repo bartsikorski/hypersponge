@@ -2,7 +2,7 @@
 
 This file is a copy of the project's design document as it stood on 14 November 2026. Keep it current in every pull request that changes the design.
 
-Status: stage 1 (the 2D carpet) is built; section 20 lists where it differs from this design.
+Status: stages 1 (the 2D carpet) and 2 (the 3D sponge) are built; sections 20 and 21 list where they differ from this design.
 
 ## 1. Summary
 
@@ -1168,3 +1168,20 @@ Everything in section 19.2 is built: the core, the 2D renderer, the window, the 
 11. **OpenGL errors.** Reading the window's own framebuffer through moderngl leaves GL\_INVALID\_OPERATION on Mesa although the pixels are right. Only the scripted session reads the window (F12 reads an offscreen copy), and it drops that one error.
 
 Not done in stage 1, as planned: the long-frame guard (stage 2) and `hypersponge bench` (stage 2).
+
+## 21. Stage 2 as built (15 November 2026)
+
+Everything in section 19.3 is built: `core/frame.py`, `CameraND`, `march.frag` with its uniforms, the four 3D styles with fog and occlusion, the 3D input mapping, the field of view and view distance sliders, the 3D inset map, the long-frame guard, `hypersponge bench`, the 3D steps of the scripted session, and golden scenes 5 to 8. The program now starts in 3D. Differences and settled details:
+
+1. **Scene scale settles, then stops.** `update_sigma(dt)` runs only after the camera moved, and stops once one step would change log3 sigma by less than 0.001. Running it every frame, as 15.3 reads, would change `far` a little each frame, and the picture would never finish accumulating.
+2. **Long-frame guard, the parts 16.3 left open.** A still sample in band mode is drawn band by band into its own RGBA32F target and added to the accumulation when complete, so a half-drawn sample never shows. The number of bands halves when a whole pass takes under 40 ms, down to 1 (guard off). A first band slower than 100 ms restarts that sample with twice the bands. Moving frames roll through the bands, one per frame, at the lowest render scale. The status bar says "slow frames: N bands" while the guard is on. A test forces the guard on and checks that the banded still equals the plain one.
+3. **uWRef instead of uSigma.** The prototype's `march.frag` takes `uWRef` (reference and scale for W-depth), so the renderer passes (0, sigma) until stage 3. The table in 14.3 names `uSigma`.
+4. **CameraND exists for n = 4** with the stage 2 operations. Its Reset is the Menger slice (w = 1/4) until stage 3 adds the presets.
+5. **Q rolls left, E rolls right** (the right vector turns towards up for Q).
+6. **The wheel alone** reaches depth 3^-100 in 489 notches at the centre of a 1080-line window and never enters solid (test\_camera). The scripted session dives to 3^-60 at 2 notches per frame.
+7. **Command line.** `render` defaults to 3D as 18.1 says, and gains `--fov` and `--no-fog`; `--center` and `--height` are refused in 3D. `info` also checks the marcher on two 3D views (the overview and depth 3^-24). `bench` times one full-size frame of 8 scenes (2 in 2D, 6 in 3D) at 1080p and 4K, or at `--size`.
+8. **Golden scene 7** (m = 3, Clay) is a plain cube: with m = 3 only the centre of each cube is removed, which cannot be seen from outside.
+9. **One-click start (Bart, 15 November).** `Install Hypersponge.bat` runs the setup and puts a Hypersponge icon on the Desktop and in the Start menu (`tools/make_shortcuts.ps1`, the mandelscope pattern). The icon starts `pythonw -m hypersponge` in the Pictures folder, so F12 saves there. `tools/make_icon.py` renders the icon.
+10. **Version 0.2.0.**
+
+Still open from 19.3: Bart runs `hypersponge bench` on the RTX 5060 Ti and the numbers go here, which also answers whether the 1080p overview holds 60 frames per second. On Mesa llvmpipe (CPU) a 480x270 frame takes 12 ms in the overview and 45 to 70 ms immersed.
