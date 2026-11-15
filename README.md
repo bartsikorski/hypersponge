@@ -4,9 +4,9 @@ A small desktop explorer for one fractal family in three modes: the Sierpinski c
 Menger sponge (3D) and the 4D Menger sponge seen through a moving 3D slice. All three zoom
 without limit.
 
-**Status: design phase.** There is no program yet. This repository holds the design and a
-verified prototype of the maths, the shaders and the camera rules. The program will be built in
-four stages, one pull request each.
+**Status: stage 1 of 4.** The 2D carpet works: a window with unlimited zoom, three styles, the
+rule and level controls, stills from the command line, and tests. The 3D sponge (stage 2) and the
+4D slice (stage 3) come next; the design and a verified prototype for them are in this repository.
 
 ![Fourteen stills rendered by the prototype](prototype/images/contact_sheet.png)
 
@@ -14,10 +14,28 @@ These stills come from the prototype: the real fragment shaders on a software Op
 driven by the prototype camera. Top row: the carpet, the carpet at depth 3^-150, Cantor dust,
 the Menger sponge. The rest are the 3D sponge from inside and slices of the 4D sponge.
 
+## Run it (Windows)
+
+Needs [uv](https://docs.astral.sh/uv/) and any GPU with OpenGL 3.3. Once, in the repository
+folder: `powershell -ExecutionPolicy Bypass -File setup_windows.ps1` (installs uv if needed,
+Python 3.12, the packages, then runs the OpenGL check). Then:
+
+```
+run.bat                                     the window (same as: uv run hypersponge)
+run.bat render -o deep.png --dive 1500 --cursor 137.5,-120.5
+run.bat info                                OpenGL details and the 2D shader check
+uv run pytest -q                            the tests
+```
+
+In the window: drag or W A S D to pan, the wheel to zoom about the cursor, Home to reset, Tab to
+hide the panel, F1 for the controls, M for the inset map, F11 for full screen, F12 to save a PNG.
+
 ## What is here
 
 | Path | Content |
 | --- | --- |
+| [`hypersponge/`](hypersponge) | The program: `core/` (rule, positions, level table, distance estimator, camera), `render/` (shaders, renderer, styles), `ui/` (window, panel, inset map, help, scripted session), `cli.py` |
+| [`tests/`](tests) | pytest: the prototype checks, the 2D shader against numpy and exact rationals, golden pictures, the command line, and a scripted GUI session |
 | [`docs/design-notes.md`](docs/design-notes.md) | The full design: the maths, rendering, camera and controls, interface, code layout, test plan, stages, and reference sections for whoever writes the code |
 | [`prototype/`](prototype/README.md) | Reference code (numpy and GLSL) and seven check scripts. Everything the design claims as verified is checked here |
 
@@ -50,7 +68,7 @@ cd prototype
 ./run_all.sh
 ```
 
-## Planned stack
+## Stack
 
 Python 3.12, uv, numpy, moderngl, Dear ImGui (imgui-bundle), OpenGL 3.3. Windows first. The
 same stack as [mandelscope](https://github.com/bartsikorski/mandelscope), without its deep-zoom

@@ -2,6 +2,8 @@
 
 This file is a copy of the project's design document as it stood on 14 November 2026. Keep it current in every pull request that changes the design.
 
+Status: stage 1 (the 2D carpet) is built; section 20 lists where it differs from this design.
+
 ## 1. Summary
 
 Hypersponge is a small desktop explorer for one fractal family in three modes: the Sierpinski carpet (2D), the Menger sponge (3D) and the 4D Menger sponge seen as a moving 3D slice. All three modes zoom without limit and share one core: a position stored as base-3 digits, a per-frame table of nearby walls, and a float32 shader.
@@ -461,7 +463,9 @@ The three risks named in the briefing are closed by the prototype. The rest have
 
   Taken as confirmed by Bart's "Sounds good" on 14 November. Say so if that is wrong.
 - [ ] Say if any control in section 5.2 should match a mandelscope habit that differs. This does not block stage 1, which is 2D only.
-- [ ] Ask for stage 1 to start. Section 19.2 is its brief.
+- [x] Ask for stage 1 to start. Section 19.2 is its brief.
+
+  Started on 14 November; section 20 records how it was built.
 
 ## 11. Detail pass of 14 November 2026
 
@@ -739,9 +743,9 @@ The data output is (t, hit as 0 or 1, row index or -1, axis + steps / 1024). Tes
 
 Cantor dust (m = 1) covers almost no area. With a cut of one third of a pixel it renders as a faint haze. With a cut of 2 pixels the grains are drawn at least 2 pixels wide and read as dust. I compared rendered images at cuts of 1/3, 1 and 2 pixels and chose 2.
 
-### 14.5 blit.frag (to write)
+### 14.5 blit.frag
 
-Uniforms: `sampler2D uTex` and `float uScale` (1 / number of accumulated samples, or 1). Output: `pow(clamp(texture(uTex, uv).rgb * uScale, 0.0, 1.0), vec3(1.0 / 2.2))`. The texture uses linear filtering, so a reduced render scale is upsampled smoothly.
+Uniforms: `sampler2D uTex` and `float uScale` (1 / number of accumulated samples, or 1), plus `uViewport`, `uSrcScale` (the part of the texture in use at a reduced render scale) and `uTexSize` (to clamp half a texel inside that part). Output: `pow(clamp(texture(uTex, uv).rgb * uScale, 0.0, 1.0), vec3(1.0 / 2.2))`. The texture uses linear filtering, so a reduced render scale is upsampled smoothly.
 
 ### 14.6 Rules for changing shaders
 
@@ -1146,3 +1150,21 @@ Done when: CI is green; every preset shows the expected shape; auto slide runs t
 ### 19.5 Stage 4
 
 Bart picks items from the list in section 9 after using stage 3. Each item is its own small pull request.
+
+## 20. Stage 1 as built (14 November 2026)
+
+Everything in section 19.2 is built: the core, the 2D renderer, the window, the command line, the tests and CI. These are the places where the code differs from the text above or settles something it left open.
+
+1. **Quality controls 2D supersampling.** Section 17.5 defines quality for 3D and 4D only. In 2D the slider sets the samples per pixel axis while moving: 2 at q = 0, 3 at 0.5 and 4 at 1. The still picture accumulates 16 jittered samples anyway, so it hardly changes.
+2. **The anchor rule uses the detail cut.** The finest drawn slab is found from cut \* pixel, so for m = 1 (cut 2 pixels) the nudge works at the scale of the dust that is actually drawn. The text in 15.1 spoke of the pixel only.
+3. **de\_table names the first axis.** When two axes tie for the m-th smallest wall distance, `de_table(..., want_info=True)` reports the first, as the GLSL does. Only the Axes style (stage 2) reads it.
+4. **march counts running out of steps as a hit**, matching the shader. Only the 3D and 4D tests (stage 2) use it.
+5. **F11 fills the monitor's work area** (`hello_imgui.use_window_full_monitor_work_area`) and F11 again restores the earlier size. There is no exclusive full screen.
+6. **The 2D inset map scales to fit.** It uses 120 pixels per unit, so the square fills most of the map, and shrinks when the view is wider than the map. The 70 pixels per unit of 17.4 stays for 3D and 4D.
+7. **The status bar** also shows the accumulation progress ("sample 5/16") until the picture is complete, and the first-run hint is a line above it rather than below, because the bar sits at the bottom of the window.
+8. **Max level panel field.** An "Unlimited levels" box with the slider (1 to 12) shown when it is off; turning it off starts at the current depth plus 4, at most 12.
+9. **Golden scenes are 256 x 256 from llvmpipe.** They were made on Mesa llvmpipe; a mean difference under 2/255 on a real GPU is expected but has to be confirmed on Bart's PC (`uv run pytest -q`).
+10. **The scripted session** (`hypersponge gui --selftest report.json`) writes its screenshots into `report_shots/` beside the report. Besides the stage 1 rows of 18.3 it zooms to depth 3^-300 at 30 notches per frame (step `deep_300`) and tries F11. Each step checks that the picture changed, and Home after all changes must give the start-up picture within 2/255 (it gives it exactly).
+11. **OpenGL errors.** Reading the window's own framebuffer through moderngl leaves GL\_INVALID\_OPERATION on Mesa although the pixels are right. Only the scripted session reads the window (F12 reads an offscreen copy), and it drops that one error.
+
+Not done in stage 1, as planned: the long-frame guard (stage 2) and `hypersponge bench` (stage 2).

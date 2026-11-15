@@ -1,0 +1,64 @@
+[project]
+name = "hypersponge"
+version = "0.1.0"
+description = "Explorer of the Sierpinski carpet, the Menger sponge and the 4D Menger sponge, with unlimited zoom"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Hypersponge contributors" }]
+keywords = ["fractal", "menger sponge", "sierpinski carpet", "4d", "ray marching", "opengl"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: GPU",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+dependencies = [
+    "numpy>=1.26",
+    "moderngl>=5.10",
+    "glcontext>=3.0",
+    "imgui-bundle>=1.92.5",
+    "pillow>=10.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/bartsikorski/hypersponge"
+Issues = "https://github.com/bartsikorski/hypersponge/issues"
+Changelog = "https://github.com/bartsikorski/hypersponge/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+hypersponge = "hypersponge.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["hypersponge"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gpu: needs an OpenGL 3.3 context",
+    "slow: long running",
+    "gui: needs a display (or Xvfb)",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["prototype"]
+
+[tool.ruff.lint]
+select = ["F", "E9"]          # pyflakes + syntax errors (CI); style is not enforced
