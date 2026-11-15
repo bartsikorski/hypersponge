@@ -13,3 +13,5 @@ dist/
 !tests/golden/*.png
 !prototype/images/*.png
 prototype/gpu_out/
+prototype/local_logs/
+Hypersponge.lnk

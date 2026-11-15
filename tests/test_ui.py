@@ -1,4 +1,5 @@
 """Interface pieces that need no window: the inset geometry, the status text, input handling."""
+import numpy as np
 import pytest
 
 from hypersponge.core.camera import Camera2D
@@ -77,5 +78,37 @@ def test_rule_changes():
     assert app.rule == Rule(2, 1, 3)
     app.set_rule(m=2, max_level=None)
     assert app.rule == Rule(2, 2) and isinstance(app.camera, Camera2D)
-    app.set_mode("3d")                                              # not built yet: ignored
+    app.set_mode("4d")                                              # not built yet: ignored
     assert app.mode == "2d"
+    app.set_mode("3d")
+    assert app.mode == "3d" and app.rule == Rule(3, 2)
+
+
+def test_inset_3d_cube_eye_and_view_line():
+    edges, eye, tip = inset.geometry_nd(np.array([0.5, 0.5, 0.5, 0.0]), np.array([0.0, 0.0, 1.0, 0.0]),
+                                        np.array([0.5, 0.5, 0.5, 0.0]), (0.0, 0.0))
+    assert len(edges) == 12
+    assert eye == pytest.approx((inset.BOX / 2, inset.BOX / 2))
+    assert tip[0] > eye[0] and tip[1] < eye[1]                     # +z goes right and up on the map
+    _, far_eye, _ = inset.geometry_nd(np.array([30.0, 0.5, 0.5, 0.0]), np.array([1.0, 0, 0, 0]),
+                                      np.array([0.5, 0.5, 0.5, 0.0]), (0.0, 0.0))
+    assert far_eye[0] == pytest.approx(inset.BOX - 6.0)            # an eye outside is drawn on the border
+
+
+def test_3d_input_mapping():
+    app = App("3d", (800, 600))
+    app.fb = (800, 600)
+    cam = app.camera
+    cam.resize(800, 600)
+    rho0, e0 = cam.rho(), cam.eye_world().copy()
+    app.handle_input(InputSnapshot(mouse=(400, 300), down=(True, False, False), clicked=(True, False, False)), 0.016)
+    app.handle_input(InputSnapshot(mouse=(450, 300), down=(True, False, False)), 0.016)
+    assert cam.rho() == pytest.approx(rho0) and not np.allclose(cam.eye_world(), e0)   # orbit
+    app.handle_input(InputSnapshot(mouse=(450, 300)), 0.016)
+    app.handle_input(InputSnapshot(mouse=(400, 300), wheel=2.0), 0.016)
+    assert cam.rho() < rho0
+    F0 = cam.F.copy()
+    app.handle_input(InputSnapshot(keys={"q"}), 0.1)
+    assert not np.allclose(cam.F, F0)
+    app.handle_input(InputSnapshot(pressed={"home"}), 0.016)
+    assert cam.rho() == pytest.approx(rho0)

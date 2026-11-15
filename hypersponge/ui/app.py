@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -11,14 +12,15 @@ from pathlib import Path
 import moderngl
 from imgui_bundle import hello_imgui, imgui
 
-from ..core.camera import Camera2D
+from ..core.camera import Camera2D, CameraND
 from ..core.rule import Rule
 from ..render.context import GL_REQUIRE, describe
 from ..render.renderer import Renderer
 from ..render.styles import StyleSettings, styles_for
 
 MODE_LABELS = {"2d": "2D carpet", "3d": "3D sponge", "4d": "4D sponge"}
-AVAILABLE = ("2d",)                 # 3D arrives in stage 2, 4D in stage 3
+AVAILABLE = ("2d", "3d")           # 4D arrives in stage 3
+ROLL_SPEED = math.radians(90.0)    # Q and E, radians per second
 
 
 @dataclass
@@ -61,11 +63,11 @@ def read_input(fb_scale) -> InputSnapshot:
 
 
 class App:
-    def __init__(self, mode: str = "2d", size=(1600, 900), selftest: str | None = None):
+    def __init__(self, mode: str = "3d", size=(1600, 900), selftest: str | None = None):
         self.mode = mode
         self.window_size = tuple(size)
         self.style = StyleSettings()
-        self.cams = {"2d": Camera2D(Rule(2, 2), *size)}
+        self.cams = {"2d": Camera2D(Rule(2, 2), *size), "3d": CameraND(Rule(3, 2), *size)}
         self.ui_visible = True
         self.show_help = False
         self.show_inset = True
@@ -76,7 +78,7 @@ class App:
         self.frame_ms = 0.0
         self.longest_frame_ms = 0.0
         self.last_time = time.perf_counter()
-        self.drag = None                 # {"button": b, "last": (x, y)} while a drag lasts
+        self.drag = None                 # {"button": b, "last": (x, y), "grab": g} while a drag lasts
         self.hint = True                 # first-run hint until the first drag or wheel
         self.notice = ("", 0.0)          # (text, shown until)
         self.screenshot_dir = Path.cwd()
@@ -180,6 +182,8 @@ class App:
         self.fps = 0.9 * self.fps + 0.1 / max(dt, 1e-4)
         inp = self.selftest.input() if self.selftest else read_input(self.fb_scale)
         self.handle_input(inp, dt)
+        if self.mode != "2d":
+            self.camera.update_sigma(dt)
         self.renderer.frame(self.camera, self.style)
         self.renderer.present(self.ctx.screen, (0, 0, W, H))
         if self.screenshot_request:
@@ -216,10 +220,13 @@ class App:
                 cam.reset()
         mx, my = inp.mouse
         cursor = (mx - W / 2.0, H / 2.0 - my)
+        flat = self.mode == "2d"
         if self.drag is None and not inp.ui_mouse:
             for b in (0, 1):
                 if inp.clicked[b]:
                     self.drag = {"button": b, "last": (mx, my)}
+                    if b == 1 and not flat:          # right-drag: the point under the cursor follows
+                        self.drag["grab"] = cam.grab(cursor)
                     break
         if self.drag is not None:
             b = self.drag["button"]
@@ -227,7 +234,12 @@ class App:
                 lx, ly = self.drag["last"]
                 dx, dy = mx - lx, my - ly
                 if dx or dy:
-                    cam.pan(dx, -dy)
+                    if flat:
+                        cam.pan(dx, -dy)
+                    elif b == 0:
+                        cam.drag_rotate(dx, -dy)
+                    else:
+                        cam.pan(dx, -dy, self.drag["grab"])
                     self.hint = False
                 self.drag["last"] = (mx, my)
             else:
@@ -239,8 +251,16 @@ class App:
             k = inp.keys
             vx = ("d" in k) - ("a" in k)
             vy = ("w" in k) - ("s" in k)
-            if vx or vy:
-                cam.fly(vx, vy, dt, inp.shift)
+            if flat:
+                if vx or vy:
+                    cam.fly(vx, vy, dt, inp.shift)
+            else:
+                vz, vy = vy, ("r" in k) - ("f" in k)
+                if vx or vy or vz:
+                    cam.fly((vx, vy, vz), dt, inp.shift)
+                roll = ("q" in k) - ("e" in k)
+                if roll:
+                    cam.roll(roll * ROLL_SPEED * dt)
 
     def toggle_full_screen(self) -> None:
         if not self.full_screen:
@@ -264,7 +284,7 @@ class App:
         return path
 
 
-def run_app(mode: str = "2d", size=(1600, 900), selftest: str | None = None) -> int:
+def run_app(mode: str = "3d", size=(1600, 900), selftest: str | None = None) -> int:
     app = App(mode, size, selftest)
     rp = hello_imgui.RunnerParams()
     rp.app_window_params.window_title = "Hypersponge"

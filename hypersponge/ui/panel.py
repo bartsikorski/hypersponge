@@ -10,7 +10,7 @@ from ..core.rule import MAX_LEVEL_LIMIT, Rule
 from ..render.styles import PALETTES, STYLE_NAMES, styles_for
 
 MODE_ORDER = ("2d", "3d", "4d")
-MODE_LATER = {"3d": "arrives in stage 2", "4d": "arrives in stage 3"}
+MODE_LATER = {"4d": "arrives in stage 3"}
 ORANGE = imgui.ImVec4(1.0, 0.62, 0.2, 1.0)
 GREY = imgui.ImVec4(0.7, 0.72, 0.76, 1.0)
 
@@ -88,10 +88,17 @@ def draw_panel(app) -> None:
         st.background = "light"
     if app.mode == "2d":
         _, st.inverted = imgui.checkbox("Inverted (swap holes and material)", st.inverted)
+    else:
+        _, st.fog = imgui.checkbox("Fog", st.fog)
+        imgui.same_line()
+        imgui.set_next_item_width(em(6))
+        _, st.occlusion = imgui.slider_float("Occlusion", st.occlusion, 0.0, 1.0, "%.2f")
     imgui.set_next_item_width(em(8))
     _, st.quality = imgui.slider_float("Quality", st.quality, 0.0, 1.0, "%.2f")
     if app.mode == "2d":
         imgui.set_item_tooltip(f"{st.supersample} x {st.supersample} samples per pixel while moving")
+    else:
+        imgui.set_item_tooltip(f"detail cut {st.lod:.2f} pixels, at most {st.max_steps} steps per ray")
 
     # ---- View ---------------------------------------------------------------------------------
     imgui.separator_text("View")
@@ -101,6 +108,18 @@ def draw_panel(app) -> None:
     if imgui.button("Save picture (F12)"):
         app.screenshot_request = True
     _, app.show_inset = imgui.checkbox("Inset map (M)", app.show_inset)
+    if app.mode != "2d":
+        cam = app.camera
+        imgui.set_next_item_width(em(8))
+        changed, fov = imgui.slider_float("Field of view", cam.fov, 30.0, 90.0, "%.0f deg")
+        if changed:
+            cam.set_fov(fov)
+        imgui.set_next_item_width(em(8))
+        changed, vr = imgui.slider_float("View distance", cam.view_range, 10.0, 300.0, "%.0f",
+                                         imgui.SliderFlags_.logarithmic)
+        if changed:
+            cam.set_view_range(vr)
+        imgui.set_item_tooltip("in units of the scene scale: how far the fog reaches")
 
     # ---- Help ---------------------------------------------------------------------------------
     imgui.separator_text("Help")
@@ -125,9 +144,13 @@ def status_parts(app) -> list:
     tb = cam.table
     r = app.rule
     rule = f"{r.name()} (m = {r.m}" + (f", max level {r.max_level})" if r.max_level else ")")
-    parts = [(MODE_LABELS[app.mode], None), (rule, None), (f"depth {depth_text(cam.depth)}", None),
-             (f"{app.fps:.0f} fps", None), (f"scale {app.renderer.scale:.2f}" if app.renderer else "scale -", None),
+    parts = [(MODE_LABELS[app.mode], None), (rule, None), (f"depth {depth_text(cam.depth)}", None)]
+    if app.mode != "2d":
+        parts.append(("overview" if cam.overview() else "immersed", None))
+    parts += [(f"{app.fps:.0f} fps", None), (f"scale {app.renderer.scale:.2f}" if app.renderer else "scale -", None),
              (f"rows {len(tb.w)}", None)]
+    if app.renderer is not None and app.renderer.bands > 1:
+        parts.append((f"drawing in {app.renderer.bands} bands", ORANGE))
     if app.renderer is not None and not app.renderer.complete:
         parts.append((f"sample {app.renderer.samples}/{app.renderer.max_samples}", GREY))
     if tb.dropped:
@@ -151,7 +174,8 @@ def draw_status(app) -> None:
              | imgui.WindowFlags_.no_nav | imgui.WindowFlags_.no_move)
     imgui.begin("##status", None, flags)
     if app.hint:
-        imgui.text_colored(GREY, "Drag to pan, wheel to zoom, F1 for help")
+        hint = "Drag to pan" if app.mode == "2d" else "Drag to turn"
+        imgui.text_colored(GREY, f"{hint}, wheel to zoom, F1 for help")
     for i, (text, col) in enumerate(status_parts(app)):
         if i:
             imgui.same_line()

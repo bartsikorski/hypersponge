@@ -4,9 +4,10 @@ A small desktop explorer for one fractal family in three modes: the Sierpinski c
 Menger sponge (3D) and the 4D Menger sponge seen through a moving 3D slice. All three zoom
 without limit.
 
-**Status: stage 1 of 4.** The 2D carpet works: a window with unlimited zoom, three styles, the
-rule and level controls, stills from the command line, and tests. The 3D sponge (stage 2) and the
-4D slice (stage 3) come next; the design and a verified prototype for them are in this repository.
+**Status: stage 2 of 4.** The 2D carpet and the 3D Menger sponge work: a window with unlimited
+zoom in both, the styles, the rule and level controls, stills from the command line, a GPU
+benchmark, and tests. The 4D slice (stage 3) comes next; its design and a verified prototype are
+in this repository.
 
 ![Fourteen stills rendered by the prototype](prototype/images/contact_sheet.png)
 
@@ -16,19 +17,28 @@ the Menger sponge. The rest are the 3D sponge from inside and slices of the 4D s
 
 ## Run it (Windows)
 
-Needs [uv](https://docs.astral.sh/uv/) and any GPU with OpenGL 3.3. Once, in the repository
+The easy way: double-click `Install Hypersponge.bat` once. It sets everything up, checks the
+shaders on your GPU and puts a Hypersponge icon on the Desktop and in the Start menu; from then
+on one click starts the explorer, without a console window. `tools\make_shortcuts.ps1` makes the
+icons again.
+
+By hand: needs [uv](https://docs.astral.sh/uv/) and any GPU with OpenGL 3.3. Once, in the repository
 folder: `powershell -ExecutionPolicy Bypass -File setup_windows.ps1` (installs uv if needed,
 Python 3.12, the packages, then runs the OpenGL check). Then:
 
 ```
 run.bat                                     the window (same as: uv run hypersponge)
-run.bat render -o deep.png --dive 1500 --cursor 137.5,-120.5
-run.bat info                                OpenGL details and the 2D shader check
+run.bat render -o sponge.png --dive 300     a 3D still, 300 wheel notches into the sponge
+run.bat render -o deep.png --mode 2d --dive 1500 --cursor 137.5,-120.5
+run.bat info                                OpenGL details and the shader checks
+run.bat bench                               frame times on this GPU, 1080p and 4K
 uv run pytest -q                            the tests
 ```
 
-In the window: drag or W A S D to pan, the wheel to zoom about the cursor, Home to reset, Tab to
-hide the panel, F1 for the controls, M for the inset map, F11 for full screen, F12 to save a PNG.
+In 3D: left-drag to turn the sponge (or look around once inside), right-drag to slide, the
+wheel to move towards the surface under the cursor, W A S D R F to fly, Q E to roll. In 2D: drag
+or W A S D to pan, the wheel to zoom about the cursor. Everywhere: Home to reset, Tab to hide the
+panel, F1 for the controls, M for the inset map, F11 for full screen, F12 to save a PNG.
 
 ## What is here
 

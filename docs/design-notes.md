@@ -2,7 +2,7 @@
 
 This file is a copy of the project's design document as it stood on 14 November 2026. Keep it current in every pull request that changes the design.
 
-Status: stage 1 (the 2D carpet) is built; section 20 lists where it differs from this design.
+Status: stages 1 (the 2D carpet) and 2 (the 3D sponge) are built; sections 20 and 21 list where they differ from this design.
 
 ## 1. Summary
 
@@ -437,7 +437,7 @@ The three risks named in the briefing are closed by the prototype. The rest have
 | Getting lost in 4D | Pivot rule, inset map, presets, Reset, Axes style with w faces in gold | Stage 3 human check |
 | A wall within half a pixel of the slice in the hidden direction is drawn as solid | Accepted: the slice behaves as if it were half a pixel thick. Presets avoid lying exactly in a face | Known limit |
 | Inverted style has no good meaning in 3D and 4D at unlimited depth, because the removed pieces fill almost the whole cube | 2D only in the first version; a finite-level 3D and 4D version is a stage 4 item | Changed from the briefing |
-| GPU time on the real card is unknown | Dynamic resolution, long-frame guard, bench at the end of stages 2 and 3 | Open until stage 2 |
+| GPU time on the real card is unknown | Dynamic resolution, long-frame guard, bench at the end of stages 2 and 3 | Measured in stage 2: the 1080p overview takes 1.3 ms on the RTX 5060 Ti (section 21) |
 | Shimmer of pixel-sized detail while moving | Detail cut at one pixel, accumulation when still, quality slider | Stage 2 human check |
 | Driver differences in float32 `mod` or uniform arrays | Probe test compares GLSL with the CPU on every run; `hypersponge info` runs the same probe on the user's GPU | Stage 2 |
 | More than 64 active table rows | Coarsest rows dropped, warning in the status bar | Not seen in tests |
@@ -1168,3 +1168,40 @@ Everything in section 19.2 is built: the core, the 2D renderer, the window, the 
 11. **OpenGL errors.** Reading the window's own framebuffer through moderngl leaves GL\_INVALID\_OPERATION on Mesa although the pixels are right. Only the scripted session reads the window (F12 reads an offscreen copy), and it drops that one error.
 
 Not done in stage 1, as planned: the long-frame guard (stage 2) and `hypersponge bench` (stage 2).
+
+## 21. Stage 2 as built (15 November 2026)
+
+Everything in section 19.3 is built: `core/frame.py`, `CameraND` for n = 3, `march.frag` with the styles Sponge, Levels, Axes and Clay, fog and occlusion, the 3D input mapping, the field of view and view distance sliders, the 3D inset map, the long-frame guard, `hypersponge bench`, and the tests. The program now starts in 3D. Built and tested on Bart's PC (RTX 5060 Ti, driver 617.42, Windows 11).
+
+### 21.1 Bench on the RTX 5060 Ti
+
+`hypersponge bench`: the GPU time of one full-size frame with one sample per pixel (draw, then `ctx.finish()`), median of 10 frames, and the CPU time of one camera update (table, unit choice and one free-distance ray).
+
+| Scene | Depth | Rows | 1080p GPU ms | 1080p fps | 4K GPU ms | Camera ms |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2D carpet, whole | 3^0 | 7 | 0.64 | 1560 | 1.91 | 0.3 |
+| 2D carpet, depth 3^-150, Levels | 3^-150 | 9 | 1.33 | 751 | 5.10 | 0.9 |
+| 3D overview | 3^0 | 7 | 1.31 | 762 | 5.78 | 0.7 |
+| 3D overview, quality 1 | 3^0 | 7 | 1.52 | 656 | 6.29 | 0.8 |
+| 3D overview, m = 3, Clay | 3^0 | 7 | 1.26 | 794 | 5.50 | 0.7 |
+| 3D, 40 wheel notches | 3^-9 | 12 | 5.28 | 190 | 21.5 | 1.1 |
+| 3D, 40 notches, quality 1 | 3^-9 | 12 | 5.78 | 173 | 22.8 | 1.1 |
+| 3D, depth 3^-100 (489 notches), Levels | 3^-100 | 13 | 5.78 | 173 | 27.6 | 2.6 |
+
+The 1080p overview holds 60 frames per second with a wide margin: 1.3 ms of GPU time against 16.7 ms. Inside the sponge a 1080p frame takes about 5 to 6 ms at any depth, and a 4K frame about 22 to 28 ms, where dynamic resolution takes over while moving. The prototype's 1080p reading of about 200 ms per scene (14 November) timed the Python camera update, the float32 read-back and the numpy accumulation of `prototype/gpu_render.py`, not the shader.
+
+### 21.2 Differences from the text above
+
+1. **update_sigma stops below a change of 1e-3** in log3 units per call and then leaves the camera untouched, so a still view accumulates (16.2 asked for this; this is how it is done). It returns whether it changed anything.
+2. **Reset in 3D** puts the eye at c + START with w = 0. The prototype's 3D camera reused the Menger preset and left w at -1/4, which the switched-off axis ignored.
+3. **Immersed rotations do not rebuild the table**, because the table does not depend on the frame.
+4. **CameraND.zoom(notches, cursor)** takes a cursor offset in window pixels like Camera2D.zoom, so the window and `--dive` drive both modes the same way.
+5. **Long-frame guard.** Moving frames in band mode draw one band per frame into the scene target and keep cycling while the view changes. A still sample in band mode is drawn band by band into a separate RGBA32F target and added to the accumulation target in one pass when complete (`copy.frag`), so a half-drawn sample is never shown. The number of bands doubles while a band takes over 100 ms and halves when all bands together take under 30 ms. The status bar says "drawing in N bands". On the RTX 5060 Ti band mode never starts; a test forces it and checks that the picture is identical.
+6. **The fog step of the scripted session has no threshold.** With the default view distance of 40 sigma the fog shows only far down tunnels, so turning it off changes the overview by about 0.1/255. The step checks that nothing fails. The max-level steps run from the overview, because from close to a wall the coarse levels look the same.
+7. **Golden pictures 5 to 8 were made on the RTX 5060 Ti**, while 1 to 4 came from llvmpipe. Pictures 1 to 4 match on this GPU within 2/255; CI checks 5 to 8 on llvmpipe.
+8. **`hypersponge info`** also checks the 3D marcher against the numpy marcher on two views (hit and level per pixel), and **`bench`** prints the 8 scenes of 21.1 at 1080p and 4K, or at `--size`.
+9. **Command line.** `--mode` defaults to 3d for `render` and `gui`; `--center` and `--height` are 2D only; `--dive` works in 3D through the wheel rule. `--preset` arrives with 4D.
+10. **One-click start**, asked for by Bart on 15 November and taken from mandelscope's pattern: `Install Hypersponge.bat` runs `setup_windows.ps1` and `tools/make_shortcuts.ps1`, which puts a Hypersponge shortcut (`.venv\Scripts\pythonw.exe -m hypersponge`, no console window) on the Desktop, in the Start menu and in the repository folder. The icon `hypersponge/assets/hypersponge.ico` is rendered by `tools/make_icon.py`. Windows packaging as an .exe stays a stage 4 item.
+
+Not done in stage 2, as planned: the fourth axis, presets, the 4D panel group, W-depth.
+

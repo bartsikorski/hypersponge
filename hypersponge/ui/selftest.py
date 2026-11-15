@@ -183,11 +183,123 @@ class SelfTest:
         def startup():
             yield from st.settle(3)
             pic = st.picture()
-            start["pic"] = pic
-            start["fb"] = a.fb
+            start["pic3d"] = pic
             spread = float(pic.std())
-            return {"mode": a.mode, "style": a.style.style, "spread": round(spread, 1), "ok": a.mode == "2d"
-                    and spread > 10 and a.camera.depth == 0}
+            return {"mode": a.mode, "style": a.style.style, "overview": a.camera.overview(), "spread": round(spread, 1),
+                    "ok": a.mode == "3d" and a.style.style == "sponge" and a.camera.overview() and spread > 10}
+
+        # ---- 3D --------------------------------------------------------------------------------
+        def drag_3d():
+            before = st.picture()
+            rho0 = a.camera.rho()
+            W, H = a.fb
+            x, y = W / 2.0, H / 2.0
+            st.snap.mouse, st.snap.down, st.snap.clicked = (x, y), (True, False, False), (True, False, False)
+            yield
+            for i in range(1, 21):
+                st.snap.mouse = (x + 10 * i, y + 3 * i)
+                st.snap.down = (True, False, False)
+                yield
+            st.snap.down = (False, False, False)
+            yield
+            yield from st.settle()
+            d = diff(before, st.picture())
+            drho = abs(a.camera.rho() - rho0)
+            return {"change": round(d, 2), "rho_change": drho, "ok": d > 0.5 and drho < 1e-9 and a.drag is None}
+
+        def wheel_30_3d():
+            for _ in range(30):
+                st.snap.mouse = st.to_mouse((0.0, 0.0))
+                st.snap.wheel = 1.0
+                yield
+            yield from st.settle()
+            cam = a.camera
+            spread = float(st.picture().std())
+            return {"depth": cam.depth, "immersed": not cam.overview(), "rows": len(cam.table.w),
+                    "spread": round(spread, 1), "ok": not cam.overview() and cam.depth >= 3 and spread > 5}
+
+        def right_drag_3d():
+            before = st.picture()
+            W, H = a.fb
+            x, y = W / 2.0, H / 2.0
+            st.snap.mouse, st.snap.down, st.snap.clicked = (x, y), (False, True, False), (False, True, False)
+            yield
+            for i in range(1, 8):
+                st.snap.mouse = (x - 12 * i, y + 8 * i)
+                st.snap.down = (False, True, False)
+                yield
+            st.snap.down = (False, False, False)
+            yield
+            yield from st.settle()
+            d = diff(before, st.picture())
+            return {"change": round(d, 2), "de": round(a.camera.de, 3), "ok": d > 0.5 and a.camera.de > 0}
+
+        def keys_home_3d():
+            """W, A and Q for one second each, then Home gives the start-up picture again."""
+            moved = []
+            for k in ("w", "a", "q"):
+                before = st.picture()
+                t0 = time.perf_counter()
+                st.snap.keys = {k}
+                while time.perf_counter() - t0 < 1.0:
+                    yield
+                st.snap.keys = set()
+                yield from st.settle()
+                moved.append(round(diff(before, st.picture()), 2))
+            yield from st.press("home")
+            yield from st.settle()
+            d = diff(start["pic3d"], st.picture())
+            return {"changes": moved, "diff_to_start": round(d, 3), "ok": min(moved) > 0.5 and d < 2.0}
+
+        def dive_3d():
+            for _ in range(25):
+                st.snap.mouse = st.to_mouse((0.0, 0.0))
+                st.snap.wheel = 1.0
+                yield
+            yield from st.settle()
+            return {"depth": a.camera.depth, "ok": not a.camera.overview()}
+
+        def restore_3d():
+            a.style = StyleSettings()
+            a.set_rule(m=2, max_level=None)
+            yield from st.press("home")
+            yield from st.settle()
+            d = diff(start["pic3d"], st.picture())
+            return {"diff_to_start": round(d, 3), "ok": d < 2.0 and a.camera.overview()}
+
+        def deep_3d():
+            """The wheel alone, aimed at the centre of the picture, to depth 3^-100."""
+            t0 = time.perf_counter()
+            frames = 0
+            worst = 0.0
+            while a.camera.depth < 100 and frames < 600:
+                st.snap.mouse = st.to_mouse((0.0, 0.0))
+                st.snap.wheel = 3.0
+                yield
+                frames += 1
+                worst = max(worst, a.frame_ms)
+            yield from st.settle()
+            cam = a.camera
+            spread = float(st.picture().std())
+            return {"depth": cam.depth, "frames": frames, "seconds": round(time.perf_counter() - t0, 1),
+                    "worst_frame_ms": round(worst, 1), "rows": len(cam.table.w), "de": round(cam.de, 3),
+                    "spread": round(spread, 1), "ok": cam.depth >= 100 and cam.de > 0 and spread > 5}
+
+        def to_2d():
+            a.set_mode("2d")
+            yield from st.settle(3)
+            pic = st.picture()
+            start["pic"] = pic
+            spread = float(pic.std())
+            return {"mode": a.mode, "spread": round(spread, 1), "ok": a.mode == "2d" and spread > 10
+                    and a.camera.depth == 0}
+
+        def back_to_3d():
+            a.set_mode("3d")
+            yield from st.settle(3)
+            spread = float(st.picture().std())          # (the window was resized: no comparison)
+            return {"mode": a.mode, "spread": round(spread, 1), "ok": a.mode == "3d" and a.camera.overview()
+                    and spread > 10}
 
         def wheel_100():
             cur = st.material_cursor()
@@ -340,8 +452,28 @@ class SelfTest:
             return {"full": big, "back": a.fb, "ok": big[0] * big[1] > W0 * H0 and a.fb == (W0, H0)
                     and not a.full_screen}
 
-        S = [("startup", startup), ("wheel_100", wheel_100), ("drag", drag), ("right_drag", right_drag),
-             ("keys", keys)]
+        S = [("startup", startup), ("3d_drag", drag_3d), ("3d_wheel_30", wheel_30_3d),
+             ("3d_right_drag", right_drag_3d), ("3d_keys_home", keys_home_3d)]
+        for s in styles_for("3d"):
+            if s != "sponge":
+                S.append((f"3d_style_{s}", style_step(set_style(s))))
+        def fog_off():
+            info = yield from st.changed_by(lambda: setattr(a.style, "fog", False))
+            return {"change": info["change"]}       # fog shows only far down tunnels: no threshold
+
+        S += [("3d_fog_off", fog_off),
+              ("3d_default_style", style_step(lambda: setattr(a, "style", StyleSettings()))),
+              ("3d_dive", dive_3d),
+              ("3d_m_1", style_step(lambda: a.set_rule(m=1))),
+              ("3d_m_3", style_step(lambda: a.set_rule(m=3))),
+              ("3d_home_for_levels", go_home),
+              ("3d_max_level_3", style_step(lambda: a.set_rule(m=2, max_level=3))),
+              ("3d_max_level_1", style_step(lambda: a.set_rule(max_level=1))),
+              ("3d_restore_and_home", restore_3d),
+              ("3d_deep_100", deep_3d),
+              ("3d_home_again", go_home),
+              ("mode_2d", to_2d),
+              ("wheel_100", wheel_100), ("drag", drag), ("right_drag", right_drag), ("keys", keys)]
         for s in styles_for("2d"):
             if s != "sponge":
                 S.append((f"style_{s}", style_step(set_style(s))))
@@ -372,5 +504,6 @@ class SelfTest:
               ("m_key", toggle("m", "show_inset")),
               ("f11", full_screen),
               ("f12", screenshot),
-              ("resize", resize)]
+              ("resize", resize),
+              ("mode_3d_again", back_to_3d)]
         return S
