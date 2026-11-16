@@ -1,6 +1,23 @@
 # Changelog
 
-## 0.1.0 (stage 1, unreleased)
+## 0.2.0 (stage 2, unreleased)
+
+The 3D Menger sponge. The program now starts in 3D.
+
+- Fly around and into the sponge: left-drag turns it (overview) or looks around (inside), the
+  wheel moves 20% of the way to the surface under the cursor, right-drag slides, W A S D R F fly,
+  Q E roll, Home returns to the overview. The camera never enters the solid and zoom has no limit.
+- Styles Sponge, Levels, Axes and Clay with fog and occlusion; field of view and view distance
+  sliders; rule m = 1 to 3 and max level; 3D inset map with the eye and its view direction.
+- Long-frame guard: on a slow GPU frames are drawn in bands so the window stays responsive.
+- `hypersponge bench` prints frame times for 8 scenes at 1080p and 4K; `info` also checks the
+  3D shader; `render` makes 3D stills (`--dive`, `--cursor`, `--fov`, `--no-fog`).
+- `Install Hypersponge.bat`: one double-click sets everything up and puts a Hypersponge icon on
+  the Desktop and in the Start menu.
+- Tests: the 3D camera rules and fuzzing, frames, the marcher against numpy, golden scenes 5 to
+  8, the 3D identity, the long-frame guard, and the 3D steps of the scripted session.
+
+## 0.1.0 (stage 1)
 
 The first program: the 2D Sierpinski carpet with unlimited zoom.
 

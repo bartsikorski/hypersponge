@@ -13,3 +13,4 @@ dist/
 !tests/golden/*.png
 !prototype/images/*.png
 prototype/gpu_out/
+*.lnk
