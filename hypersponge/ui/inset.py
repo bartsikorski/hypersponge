@@ -7,6 +7,9 @@ import itertools
 import numpy as np
 from imgui_bundle import imgui
 
+from ..core.frame import slice_segments
+from ..render.styles import AXIS_COL
+
 BOX = 200.0               # map size, interface pixels
 MARGIN = 12.0             # from the bottom right corner
 SCALE_2D = 120.0          # 2D: pixels per world unit, so that the square fills most of the map ...
@@ -53,16 +56,21 @@ def cube_edges(n: int = 3) -> list:
     return edges
 
 
+def nd_to_px(p, n, box_min, box=BOX) -> np.ndarray:
+    """Map pixels (y down) of a point of the 3D cube or the tesseract."""
+    c = np.full(4, 0.5)
+    c[n:] = 0.0
+    s = (np.asarray(p, float) - c) @ INSET_PROJ * SCALE_ND
+    return np.array([box_min[0] + box / 2.0 + s[0], box_min[1] + box / 2.0 - s[1]])
+
+
 def geometry_nd(eye, forward, n, box_min, box=BOX):
     """Map pixels (y down) of the cube's edges, the eye (kept on the map's border when it is
     outside) and the end of the view line."""
-    c = np.full(4, 0.5)
-    c[n:] = 0.0
     mid = np.array([box_min[0] + box / 2.0, box_min[1] + box / 2.0])
 
     def to_px(p):
-        s = (np.asarray(p, float) - c) @ INSET_PROJ * SCALE_ND
-        return mid + np.array([s[0], -s[1]])
+        return nd_to_px(p, n, box_min, box)
     edges = [(to_px(a), to_px(b)) for a, b in cube_edges(n)]
     e = to_px(eye)
     tip = to_px(np.asarray(eye, float) + ARROW * np.asarray(forward, float))
@@ -73,6 +81,21 @@ def geometry_nd(eye, forward, n, box_min, box=BOX):
         e = mid + off / k
         tip = e + (tip - to_px(eye))
     return edges, e, tip
+
+
+def geometry_slice(ana, h, box_min, box=BOX):
+    """4D: map pixels of the slice outline (design 17.4) and of the four axes from the corner
+    (0, 0, 0, 0), as (outline segments, [(start, end, label position)] for x, y, z, w)."""
+    outline = [(nd_to_px(a, 4, box_min, box), nd_to_px(b, 4, box_min, box)) for a, b in slice_segments(ana, h)]
+    o = nd_to_px(np.zeros(4), 4, box_min, box)
+    axes = []
+    for i in range(4):
+        e = np.zeros(4)
+        e[i] = 1.0
+        end = nd_to_px(e, 4, box_min, box)
+        d = (end - o) / max(1e-9, float(np.linalg.norm(end - o)))
+        axes.append((o, end, end + d * 8.0))
+    return outline, axes
 
 
 def _col(r, g, b, a=1.0) -> int:
@@ -93,10 +116,19 @@ def draw_inset(app) -> None:
     if cam.mode != "2d":
         edges, e, tip = geometry_nd(cam.eye_world(), cam.F[:, 2], cam.n, (x0, y0))
         dl.push_clip_rect(V(x0 + 2, y0 + 2), V(x1 - 2, y1 - 2), True)
-        grey = _col(0.8, 0.8, 0.85, 0.55)
+        grey = _col(0.8, 0.8, 0.85, 0.55 if cam.n == 3 else 0.35)
         for a, b in edges:
             dl.add_line(V(*a), V(*b), grey, 1.0)
         white = _col(1.0, 1.0, 1.0, 0.95)
+        if cam.n == 4:
+            outline, axes = geometry_slice(cam.ana(), cam.h(), (x0, y0))
+            for (a, b, lab), col, name in zip(axes, AXIS_COL, "xyzw"):
+                c = _col(*col, 0.9)
+                dl.add_line(V(*a), V(*b), c, 1.5)
+                ts = imgui.calc_text_size(name)
+                dl.add_text(V(lab[0] - ts.x / 2, lab[1] - ts.y / 2), c, name)
+            for a, b in outline:
+                dl.add_line(V(*a), V(*b), white, 2.0)
         dl.add_line(V(*e), V(*tip), white, 2.0)
         dl.add_circle_filled(V(*e), 3.5, _col(0.97, 0.80, 0.26, 1.0))
         dl.pop_clip_rect()

@@ -19,8 +19,11 @@ from ..render.renderer import Renderer
 from ..render.styles import StyleSettings, styles_for
 
 MODE_LABELS = {"2d": "2D carpet", "3d": "3D sponge", "4d": "4D sponge"}
-AVAILABLE = ("2d", "3d")            # 4D arrives in stage 3
+AVAILABLE = ("2d", "3d", "4d")
 ROLL_SPEED = math.radians(90.0)     # Q and E, per second
+TURN_SPEED = math.radians(45.0)     # 4D: keys 1 to 6, per second
+SLIDE_KEYS = 4.0                    # 4D: comma and period count as this many slide notches per second
+TURN_KEYS = (("1", "2", 0), ("3", "4", 1), ("5", "6", 2))   # (minus, plus, camera axis turned into ana)
 
 
 @dataclass
@@ -30,6 +33,7 @@ class InputSnapshot:
     down: tuple = (False, False, False)
     clicked: tuple = (False, False, False)
     wheel: float = 0.0
+    wheel_h: float = 0.0                         # some systems turn Shift + wheel into this
     keys: set = field(default_factory=set)       # held keys (names)
     pressed: set = field(default_factory=set)    # keys pressed this frame
     shift: bool = False
@@ -54,6 +58,7 @@ def read_input(fb_scale) -> InputSnapshot:
     snap.down = tuple(bool(io.mouse_down[i]) for i in range(3))
     snap.clicked = tuple(bool(imgui.is_mouse_clicked(i)) for i in range(3))
     snap.wheel = float(io.mouse_wheel)
+    snap.wheel_h = float(io.mouse_wheel_h)
     snap.keys = {n for n, k in KEYMAP.items() if imgui.is_key_down(k)}
     snap.pressed = {n for n, k in KEYMAP.items() if imgui.is_key_pressed(k, False)}
     snap.shift = bool(io.key_shift)
@@ -67,8 +72,9 @@ class App:
         self.mode = mode
         self.window_size = tuple(size)
         self.style = StyleSettings()
-        self.cams = {"2d": Camera2D(Rule(2, 2), *size), "3d": CameraND(Rule(3, 2), *size)}
-        self.sigma_moving = False        # 3D: the scene scale is still settling after a move
+        self.cams = {"2d": Camera2D(Rule(2, 2), *size), "3d": CameraND(Rule(3, 2), *size),
+                     "4d": CameraND(Rule(4, 2), *size)}
+        self.sigma_moving = False        # 3D and 4D: the scene scale is still settling after a move
         self.ui_visible = True
         self.show_help = False
         self.show_inset = True
@@ -185,6 +191,8 @@ class App:
         self.fps = 0.9 * self.fps + 0.1 / max(dt, 1e-4)
         inp = self.selftest.input() if self.selftest else read_input(self.fb_scale)
         self.handle_input(inp, dt)
+        if self.camera.mode == "4d" and self.camera.step_auto(dt):
+            self.sigma_moving = True
         if self.sigma_moving:
             self.sigma_moving = self.camera.update_sigma(dt)
         self.renderer.frame(self.camera, self.style)
@@ -198,7 +206,9 @@ class App:
             self.selftest.after_frame()
         else:
             # nothing left to draw and no key held: let hello_imgui wait for input
-            quiet = self.renderer.complete and not inp.keys and self.drag is None and not self.sigma_moving
+            auto = self.camera.mode == "4d" and (self.camera.auto_slide or self.camera.auto_turn)
+            quiet = (self.renderer.complete and not inp.keys and self.drag is None and not self.sigma_moving
+                     and not auto)
             try:
                 hello_imgui.get_runner_params().fps_idling.enable_idling = quiet
             except Exception:
@@ -239,6 +249,8 @@ class App:
                 if dx or dy:
                     if cam.mode == "2d":
                         cam.pan(dx, -dy)
+                    elif b == 0 and inp.shift and cam.mode == "4d":
+                        cam.drag_turn(dx, -dy)
                     elif b == 0:
                         cam.drag_rotate(dx, -dy)
                     else:
@@ -247,11 +259,15 @@ class App:
                 self.drag["last"] = (mx, my)
             else:
                 self.drag = None
-        if inp.wheel and not inp.ui_mouse:
+        slide = cam.mode == "4d" and inp.shift
+        wheel = inp.wheel or (inp.wheel_h if slide else 0.0)
+        if wheel and not inp.ui_mouse:
             if cam.mode == "2d":
-                cam.zoom(inp.wheel, cursor)
+                cam.zoom(wheel, cursor)
+            elif slide:
+                cam.slide(wheel)
             else:
-                cam.wheel(inp.wheel, cam.cursor_dir(cursor))
+                cam.wheel(wheel, cam.cursor_dir(cursor))
             self.hint = False
         if not inp.typing:
             k = inp.keys
@@ -268,6 +284,14 @@ class App:
                 roll = ("q" in k) - ("e" in k)
                 if roll:
                     cam.roll(roll * ROLL_SPEED * dt)
+                if cam.mode == "4d":
+                    notches = ("period" in k) - ("comma" in k)
+                    if notches:
+                        cam.slide(notches * SLIDE_KEYS * dt)
+                    for minus, plus, axis in TURN_KEYS:
+                        turn = (plus in k) - (minus in k)
+                        if turn:
+                            cam.rotate(axis, 3, turn * TURN_SPEED * dt)
         if cam.mode != "2d" and cam.key() != key0:
             self.sigma_moving = True
 

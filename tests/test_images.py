@@ -1,4 +1,4 @@
-"""Golden scenes 1 to 8 and the identities (design 18.2).  Needs an OpenGL 3.3 context.
+"""Golden scenes 1 to 14 and the identities (design 18.2).  Needs an OpenGL 3.3 context.
 
 `pytest --update-golden` rewrites tests/golden/*.png; look at the new pictures before committing.
 """
@@ -42,6 +42,15 @@ def cam3(m=2, max_level=None, notches=0, size=SIZE):
     return cam
 
 
+def cam4(preset, m=2, notches=0, size=SIZE):
+    cam = CameraND(Rule(4, m), size, size)
+    cam.preset(preset)
+    for _ in range(notches):
+        cam.wheel(1, (0.12, -0.05, 1.0))
+    cam.update_sigma()
+    return cam
+
+
 SCENES = {
     "01_carpet": lambda: (cam_at((0.5, 0.5), 1.25), StyleSettings()),
     "02_carpet_deep_levels": lambda: (cam_at((0.25, 0.75), 1.4, E=150), StyleSettings(style="levels", palette="pastel")),
@@ -52,6 +61,12 @@ SCENES = {
     "06_sponge_wheel40": lambda: (cam3(notches=40), StyleSettings()),
     "07_centre_removed_clay": lambda: (cam3(m=3), StyleSettings(style="clay")),
     "08_max_level2_axes": lambda: (cam3(max_level=2), StyleSettings(style="axes")),
+    "09_diagonal": lambda: (cam4("diagonal"), StyleSettings()),
+    "10_dust": lambda: (cam4("dust"), StyleSettings()),
+    "11_face_diagonal_ember": lambda: (cam4("face diagonal"), StyleSettings(style="levels", palette="ember")),
+    "12_cell_diagonal_axes": lambda: (cam4("cell diagonal"), StyleSettings(style="axes")),
+    "13_generic_wdepth": lambda: (cam4("generic"), StyleSettings(style="wdepth")),
+    "14_generic_wheel60_levels": lambda: (cam4("generic", notches=60), StyleSettings(style="levels")),
 }
 
 
@@ -88,6 +103,27 @@ def test_same_3d_picture_at_unit_E_and_E_plus_1(renderer):
         ia = render_still(a, st, samples=4, renderer=renderer)
         ib = render_still(b, st, samples=4, renderer=renderer)
         assert mad(ia, ib) < 1.0, (style, mad(ia, ib))
+
+
+@pytest.mark.parametrize("preset,m3", [("menger", 2), ("dust", 1)])
+def test_4d_presets_equal_3d(renderer, preset, m3):
+    """The slice w = 1/4 is the Menger sponge and w = 1/2 is 3D Cantor dust, at every depth."""
+    for notches in (0, 40):
+        a = cam4(preset, notches=notches)
+        b = cam3(m=m3, notches=notches)
+        for style in ("sponge", "axes", "clay"):
+            st = StyleSettings(style=style)
+            ia = render_still(a, st, samples=4, renderer=renderer)
+            ib = render_still(b, st, samples=4, renderer=renderer)
+            assert mad(ia, ib) < 1.0, (preset, notches, style, mad(ia, ib))
+
+
+def test_presets_differ(renderer):
+    pics = [render_still(cam4(p, size=96), StyleSettings(), samples=1, renderer=renderer)
+            for p in ("menger", "dust", "diagonal", "face diagonal", "cell diagonal", "generic")]
+    for i in range(len(pics)):
+        for j in range(i):
+            assert mad(pics[i], pics[j]) > 2.0, (i, j)
 
 
 def test_same_picture_at_unit_E_and_E_plus_1(renderer):

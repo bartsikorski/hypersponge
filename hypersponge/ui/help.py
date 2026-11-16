@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from imgui_bundle import hello_imgui, imgui
 
-CONTROLS = [               # (input, 2D, 3D)
+CONTROLS = [               # (input, 2D, 3D and 4D)
     ("Left-drag", "Pan: the picture follows the mouse",
      "Overview: turn the sponge about its centre. Immersed: look around"),
     ("Right-drag", "Pan", "Slide sideways and up or down; the point under the cursor follows the mouse"),
@@ -13,7 +13,10 @@ CONTROLS = [               # (input, 2D, 3D)
     ("R F", "", "Fly up, down"),
     ("Shift", "4 times faster keys", "4 times faster keys"),
     ("Q E", "", "Roll"),
-    ("Home", "Reset the view", "Back to the overview"),
+    ("Shift + left-drag", "", "4D: turn the slice into the fourth direction"),
+    ("Shift + wheel, comma period", "", "4D: slide the slice along the fourth direction"),
+    ("1 2, 3 4, 5 6", "", "4D: turn right, up or forward into the fourth direction"),
+    ("Home", "Reset the view", "Back to the overview (4D: to the last preset)"),
     ("Tab", "Hide or show the panel", ""),
     ("F1", "Show or hide this window", ""),
     ("M", "Hide or show the inset map", ""),
@@ -27,6 +30,10 @@ ABOUT = ("Zoom has no limit: positions are kept as exact integers plus a small f
          "the camera never enters the solid: every move goes at most half way to the nearest "
          "surface ahead.")
 
+ABOUT_4D = ("4D shows a 3D slice of the 4D sponge. The panel's 4D slice group has presets, the "
+            "slice offset, turns in each plane and automatic slide and turn. In the overview the "
+            "slice always meets the cube.")
+
 
 def draw_help(app) -> None:
     vp = imgui.get_main_viewport()
@@ -38,7 +45,7 @@ def draw_help(app) -> None:
         if imgui.begin_table("controls", 3, flags):
             imgui.table_setup_column("Input", imgui.TableColumnFlags_.width_fixed)
             imgui.table_setup_column("2D carpet")
-            imgui.table_setup_column("3D sponge")
+            imgui.table_setup_column("3D and 4D sponge")
             imgui.table_headers_row()
             for key, two, three in CONTROLS:
                 imgui.table_next_row()
@@ -51,7 +58,7 @@ def draw_help(app) -> None:
             imgui.end_table()
         imgui.spacing()
         imgui.text_wrapped(ABOUT)
-        imgui.text_disabled("4D controls arrive with the 4D mode.")
+        imgui.text_wrapped(ABOUT_4D)
     imgui.end()
     if still_open is False:
         app.show_help = False

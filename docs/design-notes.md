@@ -2,7 +2,7 @@
 
 This file is a copy of the project's design document as it stood on 14 November 2026. Keep it current in every pull request that changes the design.
 
-Status: stages 1 (the 2D carpet) and 2 (the 3D sponge) are built; sections 20 and 21 list where they differ from this design.
+Status: stages 1 (the 2D carpet), 2 (the 3D sponge) and 3 (the 4D slice) are built; sections 20, 21 and 22 list where they differ from this design.
 
 ## 1. Summary
 
@@ -437,7 +437,7 @@ The three risks named in the briefing are closed by the prototype. The rest have
 | Getting lost in 4D | Pivot rule, inset map, presets, Reset, Axes style with w faces in gold | Stage 3 human check |
 | A wall within half a pixel of the slice in the hidden direction is drawn as solid | Accepted: the slice behaves as if it were half a pixel thick. Presets avoid lying exactly in a face | Known limit |
 | Inverted style has no good meaning in 3D and 4D at unlimited depth, because the removed pieces fill almost the whole cube | 2D only in the first version; a finite-level 3D and 4D version is a stage 4 item | Changed from the briefing |
-| GPU time on the real card is unknown | Dynamic resolution, long-frame guard, bench at the end of stages 2 and 3 | Open until stage 2 |
+| GPU time on the real card is unknown | Dynamic resolution, long-frame guard, bench at the end of stages 2 and 3 | Measured in stage 2: the 1080p overview takes 1.3 ms on the RTX 5060 Ti (section 21) |
 | Shimmer of pixel-sized detail while moving | Detail cut at one pixel, accumulation when still, quality slider | Stage 2 human check |
 | Driver differences in float32 `mod` or uniform arrays | Probe test compares GLSL with the CPU on every run; `hypersponge info` runs the same probe on the user's GPU | Stage 2 |
 | More than 64 active table rows | Coarsest rows dropped, warning in the status bar | Not seen in tests |
@@ -1025,7 +1025,7 @@ hypersponge render -o OUT.png [--mode 2d|3d|4d] [--m M] [--max-level L]
                    [--size WxH] [--samples N] [--dive N] [--cursor X,Y]
                    [--center X,Y] [--height H]
 hypersponge info                 OpenGL vendor, renderer and version; runs the shader check; prints PASS or FAIL
-hypersponge bench  [--size WxH]  frame times for 8 fixed scenes, printed as a table
+hypersponge bench  [--size WxH]  frame times for 10 fixed scenes, printed as a table
 ```
 
 - Defaults: mode 3d, m 2, style sponge, size 1280x720, samples 16, preset diagonal in 4D.
@@ -1184,4 +1184,40 @@ Everything in section 19.3 is built: `core/frame.py`, `CameraND`, `march.frag` w
 9. **One-click start (Bart, 15 November).** `Install Hypersponge.bat` runs the setup and puts a Hypersponge icon on the Desktop and in the Start menu (`tools/make_shortcuts.ps1`, the mandelscope pattern). The icon starts `pythonw -m hypersponge` in the Pictures folder, so F12 saves there. `tools/make_icon.py` renders the icon.
 10. **Version 0.2.0.**
 
-Still open from 19.3: Bart runs `hypersponge bench` on the RTX 5060 Ti and the numbers go here, which also answers whether the 1080p overview holds 60 frames per second. On Mesa llvmpipe (CPU) a 480x270 frame takes 12 ms in the overview and 45 to 70 ms immersed.
+### 21.1 Bench on the RTX 5060 Ti
+
+Bart's PC built stage 2 a second time, in parallel, and ran its own `hypersponge bench` there (RTX 5060 Ti, driver 617.42, Windows 11). That build was not merged, but its shaders, level table and estimator are the same as the merged ones (`march.frag` differs only in its header comment), so its GPU times hold for the merged program. Each number is the GPU time of one full-size frame with one sample per pixel (draw, then `ctx.finish()`), the median of 10 frames.
+
+| Scene | Depth | 1080p ms | 1080p fps | 4K ms |
+| --- | --- | --- | --- | --- |
+| 2D carpet, whole | 3^0 | 0.64 | 1560 | 1.91 |
+| 2D carpet, depth 3^-150, Levels | 3^-150 | 1.33 | 751 | 5.10 |
+| 3D overview | 3^0 | 1.31 | 762 | 5.78 |
+| 3D overview, quality 1 | 3^0 | 1.52 | 656 | 6.29 |
+| 3D overview, m = 3, Clay | 3^0 | 1.26 | 794 | 5.50 |
+| 3D, 40 wheel notches | 3^-9 | 5.28 | 190 | 21.5 |
+| 3D, 40 notches, quality 1 | 3^-9 | 5.78 | 173 | 22.8 |
+| 3D, depth 3^-100 (489 notches), Levels | 3^-100 | 5.78 | 173 | 27.6 |
+
+The 1080p overview holds 60 frames per second with a wide margin: 1.3 ms against 16.7 ms. Inside the sponge a 1080p frame takes 5 to 6 ms at any depth and a 4K frame 22 to 28 ms, where dynamic resolution takes over while moving. The long-frame guard never starts on this card. The prototype's reading of about 200 ms per 1080p scene (14 November) timed the prototype script's Python camera update, read-back and numpy accumulation, not the shader. On Mesa llvmpipe (CPU) a 480x270 frame takes 12 ms in the overview and 45 to 70 ms immersed.
+
+## 22. Stage 3 as built (16 November 2026)
+
+Everything in section 19.4 is built: `CameraND` for n = 4 with the presets, slice turns, slide, offset, plane jogs, auto slide and auto turn; the W-depth style; the 4D slice panel group; the 4D input keys; the 4D inset map; golden scenes 9 to 14; the Menger identity; and the 4D steps of the scripted session. Differences and settled details:
+
+1. **Immersed auto slide turns back at once** when a step is cut below 10% of the step asked, not after half a second (15.3). Each blocked step halves the distance to the wall ahead in the hidden direction, so half a second of blocked steps took the eye about 19 levels deeper and, through the clamp of sigma to 3^8 times the clearance, pulled the view distance in.
+2. **Overview auto slide** is a triangle wave that starts from the current offset: 8 seconds from -0.98 H to +0.98 H and back. From outside that range, after the offset slider put h at an end, it moves back inwards without a jump.
+3. **The offset slider and `set_offset` do nothing when immersed**; the slider is shown disabled there, with a tooltip that points to Shift + wheel. Moving along ana keeps rho, so offset and slide never change the regime.
+4. **Presets and Reset.** Choosing a preset also makes it the target of Home, as 5.1 says; the start preset is Diagonal. The active preset's button is highlighted. A rule change that would put the eye in solid resets to the last preset.
+5. **Shift + wheel** also accepts the sideways wheel, because some systems send Shift + wheel as horizontal scrolling. Period slides forward and comma back, 4 notches per second. The keys 2, 4 and 6 turn right, up and forward towards ana; 1, 3 and 5 turn back. Shift + left-drag turns the slice even in overview, where the object stays centred.
+6. **Plane jogs** are ImGui drag fields labelled xy to zw: each frame's drag, at 0.5 degrees per pixel, goes to `rotate_object`, and the field shows 0 again when released.
+7. **Auto turn** has a plane choice of right, up or forward (into ana), default right. Auto slide and auto turn can run together. While either runs, the window does not idle.
+8. **4D inset map.** The tesseract's edges are drawn fainter than the 3D cube's, so the white slice outline and the four labelled axis lines stand out.
+9. **A second identity.** The Dust preset (w = 1/2, every digit 1) equals 3D Cantor dust (m = 1), just as the Menger preset equals the 3D sponge. Both are tested on the CPU for every ray and on the GPU within 1/255 in three styles, from the overview and after 40 wheel notches.
+10. **The wheel alone** reaches depth 3^-100 on the Generic slice in 491 notches at the centre of a 1080-line window without entering solid.
+11. **Command line.** `render --mode 4d --preset NAME` takes the six names with hyphens or spaces (default diagonal). `info` also checks the marcher on the Generic slice at depth 3^-24. `bench` adds two 4D scenes, the Diagonal overview and the Generic slice after 60 notches in W-depth, for 10 in all.
+12. **Golden scenes 9 to 14** come from llvmpipe and look like the prototype's contact sheet.
+13. **Scripted session.** 19 new steps between the 2D and window steps: the 4D mode, each preset (the Menger preset equals the 3D start picture within 2/255), Shift-drag, Shift-wheel, the slide and turn keys, the six plane jogs, the offset slider end to end, auto slide and auto turn for two seconds each (the picture changes every frame and the slice stays on the cube), W-depth and Axes, a 4D dive with an immersed auto slide, and Home back to the last preset. The session now has 68 steps.
+14. **Version 0.3.0.**
+
+Still open from 19.4: Bart tries the 4D controls and says which feel wrong, and a 4D bench on the RTX 5060 Ti.

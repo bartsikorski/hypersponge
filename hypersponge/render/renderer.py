@@ -295,7 +295,7 @@ class Renderer:
         p.set(uPix=float(cam.pix * cam.H / h), uFar=float(cam.far), uRes=(float(w), float(h)), uJitter=jit,
               uMaxSteps=int(st.max_steps), uLod=float(st.lod), uStyle=STYLES[st.style_for(cam.mode)],
               uPalette=PALETTES[st.palette], uBg=tuple(st.bg), uFog=1.0 if st.fog else 0.0,
-              uAo=float(st.occlusion), uWRef=(0.0, float(cam.sigma)), uOutMode=out_mode)
+              uAo=float(st.occlusion), uWRef=tuple(float(v) for v in cam.w_ref()), uOutMode=out_mode)
         return p
 
     def _copy(self, tex, fbo) -> None:

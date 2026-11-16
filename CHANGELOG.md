@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.0 (stage 3, unreleased)
+
+The 4D sponge, seen through a 3D slice. The Mode group's 4D button now works.
+
+- Six preset slices: Menger (w = 1/4, exactly the 3D sponge), Dust (w = 1/2, exactly Cantor
+  dust), Diagonal (the start), Face diagonal, Cell diagonal and Generic. Home returns to the last
+  preset.
+- Turn the slice into the fourth direction with Shift + left-drag or the keys 1 to 6; slide it
+  with Shift + wheel or comma and period; the offset slider moves it across the whole object.
+  In the overview the slice always meets the cube; inside, the camera never enters the solid.
+- Six plane jogs (xy to zw) turn the object in its own planes; auto slide and auto turn.
+- The W-depth style colours each point by its w coordinate.
+- 4D inset map: the tesseract, the four axes and the outline of the slice.
+- `render --mode 4d --preset NAME`; `info` checks the marcher on an oblique 4D slice; `bench`
+  adds two 4D scenes.
+- Tests: the 4D camera rules, presets and automatic motion, a 4D fuzz, a zoom to 3^-100 on an
+  oblique slice, golden scenes 9 to 14, the Menger and Dust identities, the 4D input mapping
+  and inset map, and 19 4D steps in the scripted session.
+
 ## 0.2.0 (stage 2, unreleased)
 
 The 3D Menger sponge. The program now starts in 3D.

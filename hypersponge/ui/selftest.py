@@ -374,6 +374,149 @@ class SelfTest:
                     "worst_frame_ms": round(worst, 1), "rows": len(tb.w), "covered": int(tb.covered),
                     "spread": round(spread, 1), "ok": a.camera.depth >= 300 and tb.covered == 0 and spread > 5}
 
+        # ---- 4D ------------------------------------------------------------------------------
+        def on_cube():
+            cam = a.camera
+            return not cam.overview() or abs(cam.h()) <= cam.offset_range() + 1e-9
+
+        def to_4d():
+            a.style = StyleSettings()
+            a.set_mode("4d")
+            yield from st.settle(3)
+            cam = a.camera
+            spread = float(st.picture().std())
+            return {"mode": a.mode, "preset": cam.preset_name, "spread": round(spread, 1),
+                    "ok": a.mode == "4d" and cam.preset_name == "diagonal" and cam.overview() and spread > 10}
+
+        def preset_step(name):
+            def f():
+                before = st.picture()
+                a.camera.preset(name)
+                a.sigma_moving = True
+                yield from st.settle()
+                pic = st.picture()
+                d = diff(before, pic)
+                info = {"change": round(d, 2), "spread": round(float(pic.std()), 1)}
+                ok = d > 0.5 and pic.std() > 5
+                if name == "menger":                       # w = 1/4 is exactly the 3D sponge
+                    info["diff_to_3d"] = round(diff(start["pic"], pic), 3)
+                    ok = ok and info["diff_to_3d"] < 2.0
+                return dict(info, ok=ok)
+            return f
+
+        def moves_4d(fn, what):
+            def f():
+                before = st.picture()
+                cam = a.camera
+                a0, h0 = cam.ana(), cam.h()
+                yield from fn()
+                yield from st.settle()
+                d = diff(before, st.picture())
+                turned = float(np.degrees(np.arccos(np.clip(a0 @ cam.ana(), -1.0, 1.0))))
+                info = {"change": round(d, 2), "turned_deg": round(turned, 1), "h": round(cam.h(), 4),
+                        "on_cube": on_cube()}
+                moved = turned > 1.0 if what == "turn" else abs(cam.h() - h0) > 1e-4
+                return dict(info, ok=d > 0.5 and moved and on_cube())
+            return f
+
+        def shift_drag():
+            st.snap.shift = True
+            yield from st.drag_path(0, [(15, -6)] * 8)
+            st.snap.shift = False
+
+        def shift_wheel():
+            W, H = a.fb
+            for _ in range(6):
+                st.snap.mouse, st.snap.shift, st.snap.wheel = (W / 2.0, H / 2.0), True, 1.0
+                yield
+            st.snap.shift = False
+
+        def slide_keys():
+            yield from st.hold({"comma"}, 1.0)            # back down: Shift + wheel went up
+
+        def turn_keys():
+            for k in ("2", "4", "6"):
+                yield from st.hold({k}, 0.4)
+
+        def jogs():
+            for i, j in ((0, 1), (0, 2), (1, 2), (0, 3), (1, 3), (2, 3)):
+                a.camera.rotate_object(i, j, np.radians(12.0))
+                a.sigma_moving = True
+                yield
+
+        def offset_end_to_end():
+            yield from st.press("home")
+            yield from st.settle()
+            cam = a.camera
+            H = cam.offset_range()
+            bad = 0
+            for k in range(41):
+                cam.set_offset(-H + 2.0 * H * k / 40)
+                a.sigma_moving = True
+                bad += not on_cube()
+                yield
+            yield from st.settle()
+            return {"H": round(H, 3), "h": round(cam.h(), 4), "off_cube": bad,
+                    "ok": bad == 0 and abs(cam.h() - H) < 1e-9 and cam.overview()}
+
+        def auto_step(attr):
+            def f():
+                yield from st.press("home")
+                yield from st.settle()
+                cam = a.camera
+                setattr(cam, attr, True)
+                t0 = time.perf_counter()
+                prev = st.picture()
+                frames = same = bad = 0
+                worst = 0.0
+                while time.perf_counter() - t0 < 2.0 or frames < 5:
+                    yield
+                    pic = st.picture()
+                    d = diff(prev, pic)
+                    same += d == 0.0
+                    worst = max(worst, d)
+                    bad += not on_cube()
+                    prev = pic
+                    frames += 1
+                setattr(cam, attr, False)
+                yield from st.settle()
+                return {"frames": frames, "unchanged_frames": same, "largest_frame_change": round(worst, 2),
+                        "off_cube": bad, "ok": same == 0 and bad == 0}
+            return f
+
+        def dive_4d():
+            a.camera.preset("generic")
+            a.sigma_moving = True
+            yield from st.settle()
+            W, H = a.fb
+            frames = 0
+            while a.camera.depth < 40 and frames < 400:
+                st.snap.mouse = (W / 2.0 + 0.06 * W, H / 2.0 + 0.04 * H)
+                st.snap.wheel = 2.0
+                frames += 1
+                yield
+            yield from st.settle()
+            cam = a.camera
+            before = st.picture()
+            cam.auto_slide = True                          # immersed auto slide: the motion rule
+            for _ in range(20):
+                yield
+                assert cam.de > 0 and not cam.overview()
+            cam.auto_slide = False
+            yield from st.settle()
+            d = diff(before, st.picture())
+            spread = float(st.picture().std())
+            return {"depth": cam.depth, "frames": frames, "slide_change": round(d, 2), "spread": round(spread, 1),
+                    "ok": cam.depth >= 40 and cam.de > 0 and not cam.overview() and spread > 5 and d > 0.5}
+
+        def home_4d():
+            a.style = StyleSettings()                      # so that the 3D picture matches the start
+            yield from st.press("home")
+            yield from st.settle()
+            cam = a.camera
+            return {"preset": cam.preset_name, "overview": cam.overview(), "depth": cam.depth,
+                    "ok": cam.preset_name == "generic" and cam.overview() and cam.depth == 0}
+
         # ---- window --------------------------------------------------------------------------
         def to_3d():
             a.set_mode("3d")
@@ -475,6 +618,21 @@ class SelfTest:
               ("restore_2d", restore_2d),
               ("deep_2d", deep_2d),
               ("home_again_2d", go_home),
+              ("mode_4d", to_4d)]
+        for name in ("menger", "dust", "face diagonal", "cell diagonal", "generic", "diagonal"):
+            S.append((f"preset_{name.replace(' ', '_')}", preset_step(name)))
+        S += [("shift_drag_4d", moves_4d(shift_drag, "turn")),
+              ("shift_wheel_4d", moves_4d(shift_wheel, "slide")),
+              ("slide_keys_4d", moves_4d(slide_keys, "slide")),
+              ("turn_keys_4d", moves_4d(turn_keys, "turn")),
+              ("plane_jogs_4d", moves_4d(jogs, "turn")),
+              ("offset_end_to_end", offset_end_to_end),
+              ("auto_slide_4d", auto_step("auto_slide")),
+              ("auto_turn_4d", auto_step("auto_turn")),
+              ("style_wdepth_4d", changed(set_style(style="wdepth"))),
+              ("style_axes_4d", changed(set_style(style="axes"))),
+              ("dive_4d", dive_4d),
+              ("home_4d", home_4d),
               ("mode_3d", to_3d),
               ("tab", toggle("tab", "ui_visible")),
               ("f1", toggle("f1", "show_help")),

@@ -4,10 +4,9 @@ A small desktop explorer for one fractal family in three modes: the Sierpinski c
 Menger sponge (3D) and the 4D Menger sponge seen through a moving 3D slice. All three zoom
 without limit.
 
-**Status: stage 2 of 4.** The 2D carpet and the 3D Menger sponge work: fly around and into the
-sponge, zoom without limit in both, switch styles, rule and max level, make stills from the
-command line. The 4D slice (stage 3) comes next; its design and a verified prototype are in this
-repository.
+**Status: stage 3 of 4.** All three modes work: the 2D carpet, the 3D Menger sponge and the 4D
+sponge seen through a 3D slice that turns and slides. Zoom has no limit in all three. Stage 4
+holds extras that Bart picks after trying stage 3.
 
 ![Fourteen stills rendered by the prototype](prototype/images/contact_sheet.png)
 
@@ -25,6 +24,7 @@ terminal in the repository folder:
 ```
 run.bat                                     the window (same as: uv run hypersponge)
 run.bat render -o sponge.png --dive 200 --cursor 30,-12
+run.bat render -o slice.png --mode 4d --preset generic --style wdepth
 run.bat render -o deep.png --mode 2d --dive 1500 --cursor 137.5,-120.5
 run.bat info                                OpenGL details and the shader checks
 run.bat bench                               frame times on this GPU
@@ -33,8 +33,12 @@ uv run pytest -q                            the tests
 
 In 3D: left-drag to turn the sponge (or look around once inside), the wheel to fly towards the
 point under the cursor, right-drag to slide, W A S D R F to fly, Q E to roll. In 2D: drag or
-W A S D to pan, the wheel to zoom about the cursor. Everywhere: Home to reset, Tab to hide the
-panel, F1 for the controls, M for the inset map, F11 for full screen, F12 to save a PNG.
+W A S D to pan, the wheel to zoom about the cursor. In 4D the 3D controls work in the slice,
+and Shift + left-drag turns the slice into the fourth direction, Shift + wheel (or comma and
+period) slides it, and 1 2, 3 4, 5 6 turn right, up or forward into the fourth direction. The
+panel's 4D slice group has six presets, the offset, turns in each plane, auto slide and auto turn.
+Everywhere: Home to reset, Tab to hide the panel, F1 for the controls, M for the inset map, F11
+for full screen, F12 to save a PNG.
 
 ## What is here
 

@@ -8,7 +8,7 @@ import time
 import numpy as np
 
 MODES = ("2d", "3d", "4d")
-AVAILABLE_MODES = ("2d", "3d")     # 4D arrives in stage 3
+AVAILABLE_MODES = MODES
 
 
 class UsageError(Exception):
@@ -63,10 +63,19 @@ def make_camera(args, size):
         return cam
     if args.center or args.height:
         raise UsageError("--center and --height are for the 2D mode")
+    preset = getattr(args, "preset", None)
+    if preset is not None and n != 4:
+        raise UsageError("--preset is for the 4D mode")
     fov = args.fov if args.fov is not None else FOV
     if not 10.0 <= fov <= 150.0:
         raise UsageError("--fov must be between 10 and 150 degrees")
     cam = CameraND(rule, *size, fov=fov)
+    if n == 4:
+        from .core.frame import PRESETS
+        name = (preset or "diagonal").replace("-", " ").replace("_", " ").lower()
+        if name not in PRESETS:
+            raise UsageError(f"unknown preset {preset!r}; presets: {', '.join(p.replace(' ', '-') for p in PRESETS)}")
+        cam.preset(name)
     d = cam.cursor_dir(cursor)
     for _ in range(max(0, args.dive)):
         cam.wheel(1, d)
@@ -130,10 +139,14 @@ def shader_check(ctx) -> list:
         results.append(("2D shader, " + name, agree > 0.999, f"{agree * 100:.2f}% of pixels agree"))
     overview = CameraND(Rule(3, 2), 160, 120)
     deep = CameraND(Rule(3, 2), 160, 120)
-    for _ in range(120):
-        deep.wheel(1, (0.12, -0.05, 1.0))
-    deep.update_sigma()
-    for name, cam in (("sponge overview", overview), (f"sponge at depth 3^-{deep.depth}", deep)):
+    oblique = CameraND(Rule(4, 2), 160, 120)
+    oblique.preset("generic")
+    for cam in (deep, oblique):
+        for _ in range(120):
+            cam.wheel(1, (0.12, -0.05, 1.0))
+        cam.update_sigma()
+    for name, cam in (("3D shader, sponge overview", overview), (f"3D shader, sponge at depth 3^-{deep.depth}", deep),
+                      (f"4D shader, oblique slice at depth 3^-{oblique.depth}", oblique)):
         st = StyleSettings()
         data = r.data_nd(cam, st).reshape(-1, 4)
         W, H = cam.W, cam.H
@@ -149,7 +162,7 @@ def shader_check(ctx) -> list:
         rel = np.abs(data[:, 0] - t)[both] / np.maximum(t[both], 1e-30)
         agree = float((gh == hit).mean())
         close = float((rel < 1e-3).mean()) if both.any() else 1.0
-        results.append(("3D shader, " + name, agree > 0.999 and close > 0.999,
+        results.append((name, agree > 0.999 and close > 0.999,
                         f"{agree * 100:.2f}% of rays agree on hit, {close * 100:.2f}% of hit distances within 0.1%"))
     return results
 
@@ -181,6 +194,8 @@ BENCH_SCENES = [                    # (name, mode, rule m, style, quality, wheel
     ("3D immersed, 40 notches", "3d", 2, "sponge", 0.5, 40),
     ("3D immersed, 300 notches", "3d", 2, "levels", 0.5, 300),
     ("3D immersed, 300 notches, q 1", "3d", 2, "axes", 1.0, 300),
+    ("4D diagonal slice, overview", "4d", 2, "sponge", 0.5, 0),
+    ("4D generic slice, 60 notches", "4d", 2, "wdepth", 0.5, 60),
 ]
 
 
@@ -195,7 +210,9 @@ def bench_camera(mode, m, notches, size):
             cam.height = 1.4
             cam.refresh()
         return cam
-    cam = CameraND(Rule(3, m), *size)
+    cam = CameraND(Rule(int(mode[0]), m), *size)
+    if mode == "4d":
+        cam.preset("diagonal" if not notches else "generic")
     for _ in range(notches):
         cam.wheel(1, (0.12, -0.05, 1.0))
     cam.update_sigma()
@@ -251,16 +268,18 @@ def build_parser():
     r.add_argument("--palette", default="pastel")
     r.add_argument("--light", action="store_true", help="light background")
     r.add_argument("--invert", action="store_true", help="2D: swap holes and material")
-    r.add_argument("--no-fog", action="store_true", help="3D: no fog")
+    r.add_argument("--no-fog", action="store_true", help="3D and 4D: no fog")
     r.add_argument("--size", default="1280x720")
     r.add_argument("--samples", type=int, default=16)
     r.add_argument("--dive", type=int, default=0, help="wheel notches towards --cursor before rendering")
     r.add_argument("--cursor", default=None, help="pixels from the centre, y up (default 0,0)")
-    r.add_argument("--fov", type=float, default=None, help="3D: field of view in degrees (default 50)")
+    r.add_argument("--fov", type=float, default=None, help="3D and 4D: field of view in degrees (default 50)")
+    r.add_argument("--preset", default=None,
+                   help="4D: menger, dust, diagonal (default), face-diagonal, cell-diagonal or generic")
     r.add_argument("--center", default=None, help="2D: view centre in world coordinates")
     r.add_argument("--height", type=float, default=None, help="2D: view height in world units")
     sub.add_parser("info", help="OpenGL details and a check of the shaders on this GPU")
-    b = sub.add_parser("bench", help="frame times for 8 fixed scenes (1080p and 4K unless --size)")
+    b = sub.add_parser("bench", help="frame times for 10 fixed scenes (1080p and 4K unless --size)")
     b.add_argument("--size", default=None)
     b.add_argument("--frames", type=int, default=10, help="timed frames per scene")
     return p

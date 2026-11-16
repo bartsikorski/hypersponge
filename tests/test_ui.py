@@ -134,5 +134,57 @@ def test_mode_switch_keeps_each_camera():
     app.style.style = "axes"
     app.set_mode("2d")
     assert app.style.style == "sponge"                                     # Axes has no 2D form
-    app.set_mode("4d")                                                     # not built yet: ignored
-    assert app.mode == "2d"
+    app.set_mode("4d")
+    assert app.mode == "4d" and app.camera.mode == "4d" and app.camera.preset_name == "diagonal"
+    app.style.style = "wdepth"
+    app.set_mode("3d")
+    assert app.style.style == "sponge"                                     # W-depth is 4D only
+    app.set_mode("5d")                                                     # unknown: ignored
+    assert app.mode == "3d"
+
+
+def test_inset_4d_slice_outline_and_axes():
+    outline, axes = inset.geometry_slice(np.ones(4) / 2, 0.0, (0.0, 0.0))
+    assert len(outline) == 12 and len(axes) == 4                           # the octahedron
+    for a, b in outline:
+        assert 0 < min(a[0], b[0]) and max(a[0], b[0]) < inset.BOX and 0 < min(a[1], b[1]) < inset.BOX
+    o = axes[0][0]
+    assert all(np.allclose(a[0], o) for a in axes)                         # from the corner 0
+    assert axes[0][1][0] > o[0] and axes[1][1][1] < o[1]                    # x to the right, y up
+    edges, eye, tip = inset.geometry_nd(np.array([2.0, 1.5, -1.0, 0.8]), np.array([0, 0, 1.0, 0]), 4, (0.0, 0.0))
+    assert len(edges) == 32
+    assert len(inset.geometry_slice((0, 0, 0, 1), 0.6, (0.0, 0.0))[0]) == 0  # beyond the cube: none
+
+
+def test_4d_shift_drag_shift_wheel_turn_and_slide_keys():
+    app = make_app("4d")
+    cam = app.camera
+    a0, h0 = cam.ana(), cam.h()
+    app.handle_input(InputSnapshot(mouse=(400, 300), down=(True, False, False), clicked=(True, False, False),
+                                   shift=True), 0.016)
+    app.handle_input(InputSnapshot(mouse=(450, 300), down=(True, False, False), shift=True), 0.016)
+    angle = np.degrees(np.arccos(np.clip(a0 @ cam.ana(), -1, 1)))
+    assert angle == pytest.approx(50 * 0.3, abs=1e-6) and app.sigma_moving   # Shift + drag turns the slice
+    app.handle_input(InputSnapshot(mouse=(450, 300)), 0.016)
+    h0 = cam.h()
+    app.handle_input(InputSnapshot(mouse=(400, 300), wheel=1.0, shift=True), 0.016)
+    assert cam.h() > h0 and cam.overview()                                   # Shift + wheel slides
+    h1 = cam.h()
+    app.handle_input(InputSnapshot(mouse=(400, 300), wheel_h=-1.0, shift=True), 0.016)
+    assert cam.h() < h1                                                      # ... also as a sideways wheel
+    h2 = cam.h()
+    app.handle_input(InputSnapshot(keys={"period"}), 0.25)                   # one notch
+    assert cam.h() > h2
+    app.handle_input(InputSnapshot(keys={"comma"}), 0.25)
+    assert cam.h() == pytest.approx(h2, abs=1e-12)
+    for minus, plus, axis in (("1", "2", 0), ("3", "4", 1), ("5", "6", 2)):
+        F0 = cam.F.copy()
+        app.handle_input(InputSnapshot(keys={plus}), 1.0)                    # 45 degrees
+        assert np.allclose(cam.F[:, 3], F0[:, 3] * np.cos(np.pi / 4) - F0[:, axis] * np.sin(np.pi / 4))
+        app.handle_input(InputSnapshot(keys={minus}), 1.0)
+        assert np.allclose(cam.F, F0, atol=1e-9)
+    k = cam.key()
+    app.handle_input(InputSnapshot(keys={"1"}, typing=True), 1.0)            # typing blocks the keys
+    assert cam.key() == k
+    app.handle_input(InputSnapshot(pressed={"home"}), 0.016)
+    assert cam.overview() and np.allclose(cam.ana(), np.ones(4) / 2) and abs(cam.h()) < 1e-12

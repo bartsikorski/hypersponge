@@ -10,7 +10,7 @@ import math
 
 import numpy as np
 
-from .frame import LEASH, START, givens, look_frame, orthonormalize, slice_basis
+from .frame import LEASH, PRESETS, START, START_PRESET, givens, look_frame, orthonormalize, slice_basis
 from .levels import Pos, level_table, normalize, normalize_2d
 from .rule import Rule
 from .sdf import free_distance, table_rows
@@ -162,6 +162,12 @@ FOV = 50.0                # default vertical field of view, degrees (panel: 30 t
 VIEW_RANGE = 40.0         # default view distance in units of sigma (panel: 10 to 300)
 DRAG_K = math.radians(0.3)          # drag rotation per pixel
 SIGMA_SETTLE = 1e-3                 # update_sigma stops moving sigma below this change (log3)
+SLIDE_NOTCH = 0.08                  # 4D: one slide notch moves the slice by this many sigma
+AUTO_SLIDE_SECONDS = 8.0            # 4D overview: auto slide crosses the cube in this time, each way
+AUTO_SLIDE_EDGE = 0.98              # ... between -0.98 H and +0.98 H
+AUTO_SLIDE_SPEED = 0.25             # 4D immersed: auto slide speed, sigma per second; it reverses
+                                    # as soon as a step is cut below 10% of the step asked
+AUTO_TURN_SPEED = math.radians(10.0)    # 4D: auto turn, per second
 
 
 class CameraND:
@@ -181,14 +187,19 @@ class CameraND:
         self.pix = 2.0 * math.tan(math.radians(self.fov) / 2.0) / self.H
         self.c = np.array([0.5, 0.5, 0.5, 0.5 if self.n == 4 else 0.0])
         self.R = math.sqrt(self.n) / 2.0
-        self.start = ((0.0, 0.0, 0.0, 1.0), -0.25 if self.n == 4 else 0.0)   # (ana, h) of Reset
+        self.preset_name = START_PRESET if self.n == 4 else None
+        self.start = PRESETS[START_PRESET] if self.n == 4 else ((0.0, 0.0, 0.0, 1.0), 0.0)  # (ana, h) of Reset
+        self.auto_slide = False          # 4D automatic motion (design 15.3), driven by step_auto()
+        self.auto_turn = False
+        self.auto_plane = 0              # auto turn: 0 right, 1 up, 2 forward into ana
+        self._slide_dir = 1.0
         self._good = None
         self.reset()
 
     # ---- state -------------------------------------------------------------------------------
     def reset(self) -> None:
         """Overview start: the eye at START (slice coordinates) from the slice's centre point,
-        looking at it.  In 3D the slice basis is the identity."""
+        looking at it.  In 3D the slice basis is the identity; in 4D it is the last preset."""
         ana, h = self.start
         B = slice_basis(ana)
         self.F = look_frame(B, START)
@@ -200,6 +211,15 @@ class CameraND:
         self._good = None
         self.refresh()
         self.update_sigma()
+
+    def preset(self, name: str) -> None:
+        """4D: a preset slice (design 5.4).  It also becomes what Reset returns to."""
+        if self.n != 4:
+            raise ValueError("presets are for the 4D camera")
+        self.preset_name = name
+        self.start = PRESETS[name]
+        self._slide_dir = 1.0
+        self.reset()
 
     def set_rule(self, rule: Rule) -> None:
         """Change m or the max level.  Fewer removed regions can put the eye inside solid; then
@@ -251,6 +271,19 @@ class CameraND:
 
     def overview(self) -> bool:
         return self.rho() >= 1.05 * self.R
+
+    def ana(self) -> np.ndarray:
+        return self.F[:, 3].copy()
+
+    def w_ref(self) -> tuple:
+        """W-depth style (design 17.2): (neutral w offset, scale) in local units.  In overview
+        the colours span the cube from w = 0 to w = 1; immersed they show w relative to the eye
+        on the scale of sigma, with a smooth change between the two near the cube."""
+        b = min(max((self.rho() - 0.8 * self.R) / (0.25 * self.R), 0.0), 1.0)
+        if b == 0.0:
+            return (0.0, self.sigma)
+        unit = 3.0 ** self.pos.E
+        return (b * (self.c[3] - self.eye_world()[3]) * unit, (1.0 - b) * self.sigma + b * unit)
 
     def refresh(self) -> None:
         """Unit choice and level table after any change of position (design 15.2).  If the eye
@@ -340,10 +373,71 @@ class CameraND:
             self.set_offset(math.copysign(self.offset_range(), self.h()))
 
     def set_offset(self, h: float) -> None:
-        """4D overview: move the eye along ana so that the slice offset becomes h."""
+        """4D overview: move the eye along ana so that the slice offset becomes h, clamped to
+        [-H, H].  Moving along ana keeps rho, so the eye stays in overview.  Immersed it does
+        nothing: there the motion rule applies (slide)."""
+        if self.n != 4 or not self.overview():
+            return
         h = min(max(h, -self.offset_range()), self.offset_range())
         self.pos.move(self.F[:, 3] * (h - self.h()) * 3.0 ** self.pos.E)
         self.refresh()
+
+    def rotate_object(self, i: int, j: int, angle: float) -> None:
+        """Plane jog: rotation in the object's own (i, j) plane, same pivot rule as rotate()."""
+        G = givens(i, j, angle)
+        if self.overview():
+            d = self.eye_world() - self.c
+            self.pos.move((G @ d - d) * 3.0 ** self.pos.E)
+            self.F = orthonormalize(G @ self.F)
+            self.refresh()
+            self.keep_slice_on_cube()
+        else:
+            self.F = orthonormalize(G @ self.F)
+
+    def drag_turn(self, dx: float, dy_up: float, k: float = DRAG_K) -> None:
+        """4D, Shift + left-drag: turn the slice, (right, ana) horizontally and (up, ana)
+        vertically."""
+        if self.n != 4:
+            return
+        self.rotate(0, 3, k * dx)
+        self.rotate(1, 3, k * dy_up)
+
+    def slide(self, notches: float) -> float:
+        """4D, Shift + wheel: move the slice along ana by 8% of sigma per notch, never more than
+        half the free distance; in overview the slice stays on the cube.  Returns the step."""
+        if self.n != 4 or notches == 0:
+            return 0.0
+        s = math.copysign(SLIDE_NOTCH * self.sigma * abs(notches), notches)       # local units
+        if self.overview():
+            H, h = self.offset_range(), self.h()
+            s = (min(max(h + s * 3.0 ** -self.pos.E, -H), H) - h) * 3.0 ** self.pos.E
+            if s == 0.0:
+                return 0.0
+        return self.translate(math.copysign(1.0, s) * self.F[:, 3], abs(s))
+
+    def step_auto(self, dt: float) -> bool:
+        """4D automatic motion, once per frame (design 15.3).  Returns True when it moved."""
+        if self.n != 4 or dt <= 0.0 or not (self.auto_slide or self.auto_turn):
+            return False
+        if self.auto_slide:
+            if self.overview():                   # triangle wave of h, reflected at the ends
+                edge = AUTO_SLIDE_EDGE * self.offset_range()
+                h0 = self.h()
+                if abs(h0) >= edge and h0 * self._slide_dir > 0:      # at an end, moving out
+                    self._slide_dir = -self._slide_dir
+                h = h0 + self._slide_dir * 2.0 * edge / AUTO_SLIDE_SECONDS * dt
+                if abs(h) > edge and abs(h0) <= edge:                 # passed an end this frame
+                    self._slide_dir = -math.copysign(1.0, h)
+                    h = max(-edge, min(edge, 2.0 * math.copysign(edge, h) - h))
+                self.set_offset(h)
+            else:                                 # immersed: the motion rule, reverse when blocked
+                want = AUTO_SLIDE_SPEED * self.sigma * dt
+                got = self.translate(self._slide_dir * self.F[:, 3], want)
+                if got < 0.1 * want:              # each blocked step halves the distance to the
+                    self._slide_dir = -self._slide_dir      # wall: turn back at once
+        if self.auto_turn:
+            self.rotate(int(self.auto_plane), 3, AUTO_TURN_SPEED * dt)
+        return True
 
     def roll(self, angle: float) -> None:
         self.rotate(0, 1, angle)
