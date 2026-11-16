@@ -7,11 +7,13 @@ from hypersponge.cli import main
 
 
 @pytest.mark.parametrize("argv", [
-    ["render", "-o", "x.png", "--mode", "4d"],                 # not built yet
     ["render", "-o", "x.png", "--mode", "2d", "--style", "axes"],   # not a 2D style
     ["render", "-o", "x.png", "--style", "wdepth"],            # 4D only
     ["render", "-o", "x.png", "--center", "0.5,0.5"],          # 2D only
     ["render", "-o", "x.png", "--m", "4"],
+    ["render", "-o", "x.png", "--mode", "4d", "--m", "5"],
+    ["render", "-o", "x.png", "--mode", "4d", "--preset", "nope"],
+    ["render", "-o", "x.png", "--preset", "dust"],             # 4D only
     ["render", "-o", "x.png", "--fov", "5"],
     ["bench", "--size", "1x1"],
     ["render", "-o", "x.png", "--style", "nope"],
@@ -22,7 +24,7 @@ from hypersponge.cli import main
     ["render", "-o", "x.png", "--mode", "2d", "--height", "-1"],
     ["render", "-o", "x.png", "--mode", "2d", "--center", "0.5"],
     ["render"],                                                # -o is required
-    ["gui", "--mode", "4d"],
+    ["gui", "--mode", "5d"],
     ["--size", "12"],                                          # options first mean gui
     ["frobnicate"],
 ])
@@ -83,4 +85,20 @@ def test_render_3d_overview_and_dive(ctx, tmp_path, capsys):
 def test_bench_runs(ctx, capsys):
     assert main(["bench", "--size", "64x36", "--frames", "1"]) == 0
     out = capsys.readouterr().out
-    assert out.count("64x36") == 8 and "3D overview" in out
+    assert out.count("64x36") == 10 and "3D overview" in out and "4D generic" in out
+
+
+@pytest.mark.gpu
+def test_render_4d_presets(ctx, tmp_path, capsys):
+    pics = {}
+    for preset in ("diagonal", "face-diagonal", "dust"):
+        out = tmp_path / f"{preset}.png"
+        assert main(["render", "-o", str(out), "--mode", "4d", "--preset", preset, "--size", "120x90",
+                     "--samples", "1"]) == 0
+        pics[preset] = np.asarray(Image.open(out)).astype(int)
+        assert pics[preset].std() > 5
+    assert np.abs(pics["diagonal"] - pics["face-diagonal"]).mean() > 3
+    out = tmp_path / "deep.png"
+    assert main(["render", "-o", str(out), "--mode", "4d", "--preset", "generic", "--style", "wdepth",
+                 "--dive", "120", "--size", "120x90", "--samples", "1"]) == 0
+    assert "immersed" in capsys.readouterr().out

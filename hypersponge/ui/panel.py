@@ -6,11 +6,16 @@ import time
 
 from imgui_bundle import hello_imgui, imgui
 
+from ..core.frame import PRESETS
 from ..core.rule import MAX_LEVEL_LIMIT, Rule
 from ..render.styles import PALETTES, STYLE_NAMES, styles_for
 
 MODE_ORDER = ("2d", "3d", "4d")
-MODE_LATER = {"4d": "arrives in stage 3"}
+PRESET_LABELS = {"menger": "Menger", "dust": "Dust", "diagonal": "Diagonal", "face diagonal": "Face diagonal",
+                 "cell diagonal": "Cell diagonal", "generic": "Generic"}
+JOGS = (("xy", 0, 1), ("xz", 0, 2), ("yz", 1, 2), ("xw", 0, 3), ("yw", 1, 3), ("zw", 2, 3))
+JOG_SPEED = 0.5                     # plane jogs: degrees per pixel dragged
+AUTO_PLANES = ("right", "up", "forward")
 ORANGE = imgui.ImVec4(1.0, 0.62, 0.2, 1.0)
 GREY = imgui.ImVec4(0.7, 0.72, 0.76, 1.0)
 
@@ -20,7 +25,7 @@ def em(v: float) -> float:
 
 
 def draw_panel(app) -> None:
-    from .app import AVAILABLE, MODE_LABELS
+    from .app import MODE_LABELS
     imgui.set_next_window_pos(imgui.ImVec2(em(0.6), em(0.6)), imgui.Cond_.first_use_ever)
     imgui.set_next_window_size(imgui.ImVec2(em(21), 0), imgui.Cond_.first_use_ever)
     imgui.set_next_window_bg_alpha(0.86)
@@ -37,8 +42,6 @@ def draw_panel(app) -> None:
     for i, mode in enumerate(MODE_ORDER):
         if i:
             imgui.same_line()
-        later = mode not in AVAILABLE
-        imgui.begin_disabled(later)
         active = mode == app.mode
         if active:
             imgui.push_style_color(imgui.Col_.button, imgui.get_style_color_vec4(imgui.Col_.button_active))
@@ -46,9 +49,6 @@ def draw_panel(app) -> None:
             app.set_mode(mode)
         if active:
             imgui.pop_style_color()
-        imgui.end_disabled()
-        if later:
-            imgui.set_item_tooltip(f"{MODE_LABELS[mode]}: {MODE_LATER[mode]}")
 
     # ---- Shape --------------------------------------------------------------------------------
     imgui.separator_text("Shape")
@@ -121,6 +121,10 @@ def draw_panel(app) -> None:
         imgui.set_item_tooltip("how far you see, in units of the scene scale")
     _, app.show_inset = imgui.checkbox("Inset map (M)", app.show_inset)
 
+    # ---- 4D slice -----------------------------------------------------------------------------
+    if app.mode == "4d":
+        draw_slice_group(app)
+
     # ---- Help ---------------------------------------------------------------------------------
     imgui.separator_text("Help")
     if imgui.button("Controls (F1)"):
@@ -128,6 +132,53 @@ def draw_panel(app) -> None:
     imgui.same_line()
     imgui.text_disabled("Tab hides this panel")
     imgui.end()
+
+
+def draw_slice_group(app) -> None:
+    """Presets, offset, plane jogs, automatic motion and read-outs (design 6.1, 17.5)."""
+    cam = app.camera
+    key0 = cam.key()
+    imgui.separator_text("4D slice")
+    for i, name in enumerate(PRESETS):
+        if i % 3:
+            imgui.same_line()
+        active = name == cam.preset_name
+        if active:
+            imgui.push_style_color(imgui.Col_.button, imgui.get_style_color_vec4(imgui.Col_.button_active))
+        if imgui.button(PRESET_LABELS[name]):
+            cam.preset(name)
+        if active:
+            imgui.pop_style_color()
+        imgui.set_item_tooltip("this slice; Home comes back to it")
+    H = cam.offset_range()
+    imgui.begin_disabled(not cam.overview())
+    imgui.set_next_item_width(em(8))
+    changed, h = imgui.slider_float("Offset", cam.h(), -H, H, "%.3f")
+    if changed:
+        cam.set_offset(h)
+    imgui.end_disabled()
+    imgui.set_item_tooltip("where the slice cuts the cube" if cam.overview()
+                           else "only from outside the cube; inside, use Shift + wheel")
+    imgui.text("Turn in plane")
+    for i, (label, a, b) in enumerate(JOGS):
+        if i % 3:
+            imgui.same_line()
+        imgui.set_next_item_width(em(4.2))
+        changed, deg = imgui.drag_float(f"##jog{label}", 0.0, JOG_SPEED, 0.0, 0.0, f"{label} %.0f")
+        if changed and deg:
+            cam.rotate_object(a, b, math.radians(deg))
+        imgui.set_item_tooltip(f"drag to turn the object in its {label} plane")
+    _, cam.auto_slide = imgui.checkbox("Auto slide", cam.auto_slide)
+    imgui.same_line()
+    _, cam.auto_turn = imgui.checkbox("Auto turn", cam.auto_turn)
+    imgui.same_line()
+    imgui.set_next_item_width(em(5.5))
+    _, cam.auto_plane = imgui.combo("##autoplane", cam.auto_plane, list(AUTO_PLANES))
+    imgui.set_item_tooltip("which way auto turn tips into the fourth direction")
+    a = cam.ana()
+    imgui.text_disabled(f"ana ({a[0]:.3f}, {a[1]:.3f}, {a[2]:.3f}, {a[3]:.3f})   h {cam.h():.3f}")
+    if cam.key() != key0:
+        app.sigma_moving = True
 
 
 def depth_text(E: int) -> str:

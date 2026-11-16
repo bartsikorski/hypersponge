@@ -12,6 +12,15 @@ import numpy as np
 
 START = np.array([1.45, 1.05, -1.75])          # overview eye, in slice coordinates from the target
 LEASH = 30.0                                   # the eye never moves further than this from the centre
+PRESETS = {                                    # 4D slices, name: (ana, slice offset h) (design 5.4)
+    "menger": ((0, 0, 0, 1), -0.25),           # w = 1/4: exactly the Menger sponge
+    "dust": ((0, 0, 0, 1), 0.0),               # w = 1/2: exactly Cantor dust
+    "diagonal": ((1, 1, 1, 1), 0.0),
+    "face diagonal": ((0, 0, 1, 1), 0.0),
+    "cell diagonal": ((0, 1, 1, 1), 0.0),
+    "generic": ((1, 2, 3, 4), 0.0),
+}
+START_PRESET = "diagonal"                      # the 4D view at start-up
 
 
 def givens(i: int, j: int, angle: float) -> np.ndarray:
