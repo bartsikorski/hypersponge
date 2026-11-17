@@ -104,7 +104,7 @@ def test_offset_slider_and_slide_keep_the_slice_on_the_cube():
     for _ in range(100):
         cam.slide(2)
     assert abs(cam.h() - cam.offset_range()) < 1e-9 and cam.overview()
-    assert cam.slide(1) == 0.0                                      # at the end: nothing to do
+    assert cam.slide(1) < 1e-12                                     # at the end: nothing left but rounding
     s = cam.slide(-1)
     assert s > 0 and abs(cam.h()) < cam.offset_range()
 
